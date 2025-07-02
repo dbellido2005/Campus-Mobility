@@ -33,6 +33,12 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Campus Mobility to use your location to suggest nearby pickup points and provide accurate ride sharing."
+        }
       ]
     ],
     "experiments": {

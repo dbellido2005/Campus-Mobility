@@ -1,5 +1,5 @@
 import 'react-native-get-random-values';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, TextInput, StyleSheet } from 'react-native';
 import { IconButton } from 'react-native-paper';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
@@ -28,21 +28,40 @@ export default function LocationInput({
   useAutocomplete = false,
 }: LocationInputProps) {
   const [inputValue, setInputValue] = useState(value.description);
+  const [hasError, setHasError] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    // Add a small delay to ensure proper initialization
+    const timer = setTimeout(() => setIsInitialized(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
   const autocompleteRef = useRef<any>(null);
 
-  if (useAutocomplete && GOOGLE_PLACES_API_KEY) {
+  // Sync inputValue with value prop
+  useEffect(() => {
+    setInputValue(value.description);
+  }, [value.description]);
+
+  // Try autocomplete, fallback to TextInput if there are issues
+  if (useAutocomplete && GOOGLE_PLACES_API_KEY && !hasError && isInitialized) {
     return (
       <View style={styles.container}>
         <GooglePlacesAutocomplete
           ref={autocompleteRef}
           placeholder={placeholder}
           onPress={(data, details = null) => {
-            const location: LocationData = {
-              description: data.description,
-              latitude: details?.geometry?.location?.lat,
-              longitude: details?.geometry?.location?.lng,
-            };
-            onLocationSelect(location);
+            try {
+              const location: LocationData = {
+                description: data.description,
+                latitude: details?.geometry?.location?.lat,
+                longitude: details?.geometry?.location?.lng,
+              };
+              onLocationSelect(location);
+            } catch (error) {
+              console.error('Error processing location selection:', error);
+              setHasError(true);
+            }
           }}
           query={{
             key: GOOGLE_PLACES_API_KEY,
@@ -50,6 +69,12 @@ export default function LocationInput({
           }}
           fetchDetails={true}
           enablePoweredByContainer={false}
+          suppressDefaultStyles
+          textInputProps={{
+            autoCorrect: false,
+            onFocus: () => {},
+            onBlur: () => {},
+          }}
           styles={{
             container: {
               flex: 1,
@@ -83,8 +108,10 @@ export default function LocationInput({
           }}
           onFail={(error) => {
             console.log('GooglePlacesAutocomplete error:', error);
-            // Fallback to regular input on error
+            setHasError(true);
           }}
+          predefinedPlaces={[]}
+          listEmptyComponent={null}
         />
         <IconButton
           icon="crosshairs-gps"
@@ -96,7 +123,7 @@ export default function LocationInput({
     );
   }
 
-  // Fallback to regular TextInput
+  // Fallback to regular TextInput - works reliably
   return (
     <View style={styles.container}>
       <TextInput
@@ -107,6 +134,8 @@ export default function LocationInput({
           setInputValue(text);
           onLocationSelect({ description: text });
         }}
+        autoCorrect={false}
+        autoCapitalize="words"
       />
       <IconButton
         icon="crosshairs-gps"
