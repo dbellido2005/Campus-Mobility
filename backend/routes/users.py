@@ -1,9 +1,9 @@
 # routes/users.py
-from fastapi import APIRouter, HTTPException, status
-from models import User, UserSignUp, UserLogin, EmailVerification, ResendVerification
+from fastapi import APIRouter, HTTPException, status, Depends
+from models import User, UserSignUp, UserLogin, EmailVerification, ResendVerification, UserProfileUpdate, UserProfileResponse
 from database import users_collection
 from utils.email_utils import validate_college_email, generate_verification_code, get_verification_expiry, send_verification_email
-from utils.auth_utils import hash_password, verify_password, create_access_token
+from utils.auth_utils import hash_password, verify_password, create_access_token, get_current_user
 from datetime import datetime
 
 router = APIRouter()
@@ -214,3 +214,84 @@ async def list_users():
         user.pop('verification_code', None)
         users.append(user)
     return users
+
+@router.get("/profile", response_model=UserProfileResponse)
+async def get_user_profile(current_user: dict = Depends(get_current_user)):
+    """Get current user's profile"""
+    user = await users_collection.find_one({"email": current_user["email"]})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    return UserProfileResponse(
+        name=user.get('name'),
+        email=user['email'],
+        college=user['college'],
+        year=user.get('year'),
+        major=user.get('major'),
+        bio=user.get('bio'),
+        profile_picture=user.get('profile_picture'),
+        created_at=user['created_at'],
+        times_driver_last_month=user.get('times_driver_last_month', 0),
+        times_rider_last_month=user.get('times_rider_last_month', 0),
+        times_uber_share_last_month=user.get('times_uber_share_last_month', 0),
+        stats_last_updated=user.get('stats_last_updated')
+    )
+
+@router.put("/profile", response_model=UserProfileResponse)
+async def update_user_profile(
+    profile_update: UserProfileUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update current user's profile"""
+    
+    # Build update document with only provided fields
+    update_data = {}
+    if profile_update.name is not None:
+        update_data["name"] = profile_update.name
+    if profile_update.year is not None:
+        update_data["year"] = profile_update.year
+    if profile_update.major is not None:
+        update_data["major"] = profile_update.major
+    if profile_update.bio is not None:
+        update_data["bio"] = profile_update.bio
+    if profile_update.profile_picture is not None:
+        update_data["profile_picture"] = profile_update.profile_picture
+    
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update"
+        )
+    
+    # Update user in database
+    result = await users_collection.update_one(
+        {"email": current_user["email"]},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Return updated profile
+    updated_user = await users_collection.find_one({"email": current_user["email"]})
+    
+    return UserProfileResponse(
+        name=updated_user.get('name'),
+        email=updated_user['email'],
+        college=updated_user['college'],
+        year=updated_user.get('year'),
+        major=updated_user.get('major'),
+        bio=updated_user.get('bio'),
+        profile_picture=updated_user.get('profile_picture'),
+        created_at=updated_user['created_at'],
+        times_driver_last_month=updated_user.get('times_driver_last_month', 0),
+        times_rider_last_month=updated_user.get('times_rider_last_month', 0),
+        times_uber_share_last_month=updated_user.get('times_uber_share_last_month', 0),
+        stats_last_updated=updated_user.get('stats_last_updated')
+    )
