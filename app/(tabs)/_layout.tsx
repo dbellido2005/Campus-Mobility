@@ -8,6 +8,11 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
+//Icons
+import { FontAwesome, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
 
@@ -29,17 +34,40 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'You',
+          tabBarIcon: ({ color }) => <Icon name="mood" size={28} color="#000" />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="Explore"
         options={{
           title: 'Explore',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="UberShare"
+        options={{
+          title: 'Uber Share',
+          tabBarIcon: ({ color }) => <MaterialIcons name="directions-car" size={28} color="black" />,
+        }}
+      />
+      <Tabs.Screen
+        name="FindDrivers"
+        options={{
+          title: 'Find Drivers',
+          tabBarIcon: ({ color }) => <MaterialCommunityIcons name="account-tie" size={28} color="black" />,
+        }}
+      />
+      <Tabs.Screen
+        name="FindRiders"
+        options={{
+          title: 'Find Riders',
+          tabBarIcon: ({ color }) => <FontAwesome name="users" size={24} />,
+        }}
+      />
     </Tabs>
   );
 }
+
+
