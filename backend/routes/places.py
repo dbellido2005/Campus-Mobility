@@ -18,7 +18,6 @@ from models import (
 router = APIRouter()
 
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
-print(f"DEBUG: GOOGLE_PLACES_API_KEY loaded: {GOOGLE_PLACES_API_KEY[:10] if GOOGLE_PLACES_API_KEY else 'None'}...")
 
 @router.post("/places/autocomplete", response_model=PlaceAutocompleteResponse)
 async def get_place_autocomplete(request: PlaceAutocompleteRequest):
