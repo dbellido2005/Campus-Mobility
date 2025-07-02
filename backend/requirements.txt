@@ -1,1 +1,10 @@
 fastapi[standard]
+motor
+pymongo
+bcrypt
+pyjwt
+python-multipart
+email-validator
+python-dotenv
+sendgrid
+httpx
