@@ -464,3 +464,67 @@ async def upload_profile_picture(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload profile picture: {str(e)}"
         )
+
+@router.delete("/delete-account")
+async def delete_account(current_user: dict = Depends(get_current_user)):
+    """Delete current user's account and all associated data"""
+    
+    try:
+        user_email = current_user["email"]
+        
+        # First, remove user from all rides they're part of
+        # Find all rides where the user is a participant
+        rides_to_update = []
+        cursor = rides_collection.find({"user_ids": user_email})
+        
+        async for ride in cursor:
+            rides_to_update.append(ride)
+        
+        # Update each ride to remove the user
+        for ride in rides_to_update:
+            new_user_ids = [uid for uid in ride["user_ids"] if uid != user_email]
+            
+            # Update status based on remaining participants
+            if len(new_user_ids) == 0:
+                # If no participants left, mark as cancelled
+                new_status = "cancelled"
+            else:
+                # If there are still participants, keep existing status or set to active
+                new_status = "active" if ride["status"] in ["active", "full"] else ride["status"]
+            
+            # Update the ride
+            await rides_collection.update_one(
+                {"_id": ride["_id"]},
+                {
+                    "$set": {
+                        "user_ids": new_user_ids,
+                        "status": new_status
+                    }
+                }
+            )
+        
+        # Delete all rides created by the user
+        await rides_collection.delete_many({"creator_email": user_email})
+        
+        # Delete the user account
+        result = await users_collection.delete_one({"email": user_email})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        return {
+            "message": "Account deleted successfully",
+            "rides_updated": len(rides_to_update),
+            "rides_deleted": result.deleted_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete account: {str(e)}"
+        )

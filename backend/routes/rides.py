@@ -283,3 +283,51 @@ async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)
         "message": "Successfully joined the ride",
         "ride": updated_ride
     }
+
+@router.post("/ride-request/{ride_id}/leave")
+async def leave_ride(ride_id: str, current_user: dict = Depends(get_current_user)):
+    """Leave an existing ride"""
+    
+    # Find the ride
+    ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+    if not ride:
+        raise HTTPException(status_code=404, detail="Ride not found")
+    
+    # Check if user is in the ride
+    if current_user["email"] not in ride["user_ids"]:
+        raise HTTPException(status_code=400, detail="You are not in this ride")
+    
+    # Remove user from the ride
+    new_user_ids = [user_id for user_id in ride["user_ids"] if user_id != current_user["email"]]
+    
+    # Update status based on remaining participants
+    if len(new_user_ids) == 0:
+        # If no participants left, mark as cancelled
+        new_status = "cancelled"
+    else:
+        # If there are still participants, set to active (unless it was already cancelled/completed)
+        new_status = "active" if ride["status"] in ["active", "full"] else ride["status"]
+    
+    # Update the ride
+    result = await rides_collection.update_one(
+        {"_id": ObjectId(ride_id)},
+        {
+            "$set": {
+                "user_ids": new_user_ids,
+                "status": new_status
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Ride not found")
+    
+    # Return updated ride
+    updated_ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+    updated_ride["_id"] = str(updated_ride["_id"])
+    updated_ride["available_spots"] = updated_ride["max_participants"] - len(updated_ride["user_ids"])
+    
+    return {
+        "message": "Successfully left the ride",
+        "ride": updated_ride
+    }
