@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from models import RideRequest, RidePost, LocationData
 from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
+from services.uber_pricing import uber_pricing_service
 from bson import ObjectId
 from typing import List
 from datetime import datetime
@@ -9,25 +10,36 @@ import random
 
 router = APIRouter()
 
-def estimate_price_and_time(origin: LocationData, destination: LocationData):
-    """Simple estimation logic - in production, you'd use real APIs"""
-    # Basic estimation based on coordinates if available
-    if origin.latitude and origin.longitude and destination.latitude and destination.longitude:
-        # Rough distance calculation (simplified)
-        lat_diff = abs(origin.latitude - destination.latitude)
-        lng_diff = abs(origin.longitude - destination.longitude)
-        distance_estimate = (lat_diff + lng_diff) * 111  # Rough km conversion
-        
-        # Estimate time (assuming average speed of 40 km/h)
-        time_estimate = int(distance_estimate / 40 * 60)  # Convert to minutes
-        
-        # Estimate price (rough $2 per km base + surge)
-        price_estimate = max(8.0, distance_estimate * 2.0)
-        
-        return time_estimate, price_estimate
+async def estimate_price_and_time(origin: LocationData, destination: LocationData):
+    """Uber API only pricing estimation - returns None if unavailable"""
     
-    # Default estimates if no coordinates
-    return 30, 15.0  # 30 minutes, $15
+    # Only try if we have coordinates
+    if origin.latitude and origin.longitude and destination.latitude and destination.longitude:
+        try:
+            # Get price estimate from Uber API only
+            pricing_data = await uber_pricing_service.get_price_estimate(
+                origin.latitude, 
+                origin.longitude,
+                destination.latitude, 
+                destination.longitude
+            )
+            
+            if pricing_data:
+                # Extract time and price from Uber response
+                time_estimate = int(pricing_data.get('duration', 1800) / 60)  # Convert seconds to minutes
+                price_estimate = pricing_data.get('estimate', 0)
+                
+                return time_estimate, price_estimate, pricing_data
+            else:
+                # Uber API unavailable
+                return None, None, None
+                
+        except Exception as e:
+            print(f"Error getting Uber pricing estimate: {str(e)}")
+            return None, None, None
+    
+    # No coordinates available
+    return None, None, None
 
 @router.post("/ride-request")
 async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(get_current_user)):
@@ -39,28 +51,34 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid departure_date format")
     
-    # Get estimated travel time and price
-    estimated_time, estimated_price = estimate_price_and_time(ride_post.origin, ride_post.destination)
+    # Get estimated travel time and price from Uber API only
+    estimated_time, estimated_price, pricing_data = await estimate_price_and_time(ride_post.origin, ride_post.destination)
     
-    # Create full ride request
-    ride_request = RideRequest(
-        origin=ride_post.origin,
-        destination=ride_post.destination,
-        departure_date=departure_date,
-        earliest_time=ride_post.earliest_time,
-        latest_time=ride_post.latest_time,
-        communities=ride_post.communities,
-        creator_email=current_user["email"],
-        user_ids=[current_user["email"]],  # Creator automatically joins
-        max_participants=ride_post.max_participants,
-        estimated_price_per_person=estimated_price / ride_post.max_participants,
-        estimated_travel_time=estimated_time
-    )
+    # Create ride request (with None values if Uber API unavailable)
+    ride_request_data = {
+        "origin": ride_post.origin.dict(),
+        "destination": ride_post.destination.dict(),
+        "departure_date": departure_date,
+        "earliest_time": ride_post.earliest_time,
+        "latest_time": ride_post.latest_time,
+        "communities": ride_post.communities,
+        "creator_email": current_user["email"],
+        "user_ids": [current_user["email"]],  # Creator automatically joins
+        "max_participants": ride_post.max_participants,
+        "status": "active",
+        "created_at": datetime.utcnow()
+    }
     
-    ride_dict = ride_request.dict()
-    result = await rides_collection.insert_one(ride_dict)
-    ride_dict["_id"] = str(result.inserted_id)
-    return ride_dict
+    # Add pricing data only if available
+    if estimated_price is not None:
+        ride_request_data["estimated_total_price"] = estimated_price
+        ride_request_data["estimated_price_per_person"] = estimated_price / ride_post.max_participants
+    if estimated_time is not None:
+        ride_request_data["estimated_travel_time"] = estimated_time
+    
+    result = await rides_collection.insert_one(ride_request_data)
+    ride_request_data["_id"] = str(result.inserted_id)
+    return ride_request_data
 
 @router.get("/ride-request/{ride_id}")
 async def get_ride_request(ride_id: str):
@@ -331,3 +349,94 @@ async def leave_ride(ride_id: str, current_user: dict = Depends(get_current_user
         "message": "Successfully left the ride",
         "ride": updated_ride
     }
+
+@router.get("/my-rides")
+async def get_my_rides(current_user: dict = Depends(get_current_user)):
+    """Get all rides that the current user has joined"""
+    
+    user_email = current_user["email"]
+    
+    # Find all rides where the user is a participant
+    rides = []
+    cursor = rides_collection.find({
+        "user_ids": user_email,
+        "status": {"$in": ["active", "full"]}  # Only show active rides
+    }).sort("departure_date", 1)  # Sort by departure date
+    
+    async for ride in cursor:
+        ride["_id"] = str(ride["_id"])
+        
+        # Get creator details
+        creator = await users_collection.find_one({"email": ride["creator_email"]})
+        ride["creator_name"] = creator.get("name") if creator else None
+        
+        # Calculate available spots
+        ride["available_spots"] = ride["max_participants"] - len(ride["user_ids"])
+        
+        rides.append(ride)
+    
+    return rides
+
+@router.post("/price-estimate")
+async def get_detailed_price_estimate(
+    estimate_request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get detailed price estimate for a potential ride
+    Expected request format:
+    {
+        "origin": {"latitude": float, "longitude": float, "description": str},
+        "destination": {"latitude": float, "longitude": float, "description": str},
+        "product_type": "uberX" (optional)
+    }
+    """
+    
+    try:
+        origin = estimate_request.get('origin', {})
+        destination = estimate_request.get('destination', {})
+        product_type = estimate_request.get('product_type', 'uberX')
+        
+        if not all([
+            origin.get('latitude'), 
+            origin.get('longitude'),
+            destination.get('latitude'), 
+            destination.get('longitude')
+        ]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Origin and destination coordinates are required"
+            )
+        
+        # Get pricing estimate from Uber API only
+        pricing_data = await uber_pricing_service.get_price_estimate(
+            origin['latitude'],
+            origin['longitude'], 
+            destination['latitude'],
+            destination['longitude'],
+            product_type
+        )
+        
+        if pricing_data:
+            return {
+                "success": True,
+                "pricing": pricing_data,
+                "origin": origin,
+                "destination": destination
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Price estimate unavailable - Uber API not accessible",
+                "pricing": None,
+                "origin": origin,
+                "destination": destination
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error calculating price estimate: {str(e)}"
+        )
