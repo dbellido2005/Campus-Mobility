@@ -653,11 +653,19 @@ async def delete_ride_request(ride_id: str, current_user: dict = Depends(get_cur
             raise HTTPException(status_code=404, detail="Ride not found")
         
         # Check if the current user is the creator
+        print(f"🔍 DEBUG delete permission check:")
+        print(f"  Ride creator: {ride['creator_email']}")
+        print(f"  Current user: {current_user['email']}")
+        print(f"  Are they equal? {ride['creator_email'] == current_user['email']}")
+        
         if ride["creator_email"] != current_user["email"]:
+            print(f"❌ Permission denied: User {current_user['email']} trying to delete ride by {ride['creator_email']}")
             raise HTTPException(
                 status_code=403, 
                 detail="Only the ride creator can delete this ride"
             )
+        
+        print(f"✅ Permission granted: User {current_user['email']} can delete their own ride")
         
         # Check if there are other participants (besides creator)
         other_participants = [email for email in ride["user_ids"] if email != current_user["email"]]

@@ -43,11 +43,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     token = credentials.credentials
     payload = verify_token(token)
     
+    print(f"🔍 DEBUG get_current_user:")
+    print(f"  Token: {token[:20]}...")
+    print(f"  Payload: {payload}")
+    
     if payload is None:
+        print(f"❌ Token validation failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    print(f"✅ Token valid, user: {payload.get('email', 'NO_EMAIL')}")
     return payload
