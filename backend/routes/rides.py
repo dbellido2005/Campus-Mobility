@@ -3,6 +3,7 @@ from models import RideRequest, RidePost, LocationData
 from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
 from services.uber_pricing import uber_pricing_service
+from services.google_routes import google_routes_service
 from bson import ObjectId
 from typing import List
 from datetime import datetime
@@ -54,7 +55,32 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
     # Get estimated travel time and price from Uber API only
     estimated_time, estimated_price, pricing_data = await estimate_price_and_time(ride_post.origin, ride_post.destination)
     
-    # Create ride request (with None values if Uber API unavailable)
+    # Get route information from Google Routes API
+    route_info = None
+    if (ride_post.origin.latitude is not None and ride_post.origin.longitude is not None and
+        ride_post.destination.latitude is not None and ride_post.destination.longitude is not None):
+        
+        try:
+            print(f"DEBUG: Getting route info for new ride...")
+            route_info = await google_routes_service.get_route_info(
+                ride_post.origin.latitude,
+                ride_post.origin.longitude,
+                ride_post.destination.latitude,
+                ride_post.destination.longitude
+            )
+            
+            if route_info:
+                print(f"DEBUG: ✅ Route info obtained: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
+            else:
+                print(f"DEBUG: ❌ Google Routes API returned no data for new ride")
+        except Exception as e:
+            print(f"DEBUG: ❌ Error getting route info for new ride: {str(e)}")
+    else:
+        print(f"DEBUG: ❌ Missing coordinates for new ride")
+        print(f"DEBUG:   Origin: {ride_post.origin.latitude}, {ride_post.origin.longitude}")
+        print(f"DEBUG:   Destination: {ride_post.destination.latitude}, {ride_post.destination.longitude}")
+    
+    # Create ride request (with None values if APIs unavailable)
     ride_request_data = {
         "origin": ride_post.origin.dict(),
         "destination": ride_post.destination.dict(),
@@ -76,6 +102,10 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
     if estimated_time is not None:
         ride_request_data["estimated_travel_time"] = estimated_time
     
+    # Add route information if available
+    if route_info:
+        ride_request_data["route_info"] = route_info
+    
     result = await rides_collection.insert_one(ride_request_data)
     ride_request_data["_id"] = str(result.inserted_id)
     return ride_request_data
@@ -86,6 +116,34 @@ async def get_ride_request(ride_id: str):
     if not ride:
         raise HTTPException(status_code=404, detail="Ride not found")
     ride["_id"] = str(ride["_id"])
+    
+    # Add route information if not already present and coordinates are available
+    if "route_info" not in ride:
+        origin = ride.get('origin', {})
+        destination = ride.get('destination', {})
+        
+        if (isinstance(origin, dict) and isinstance(destination, dict) and
+            origin.get('latitude') is not None and origin.get('longitude') is not None and
+            destination.get('latitude') is not None and destination.get('longitude') is not None):
+            
+            try:
+                route_info = await google_routes_service.get_route_info(
+                    float(origin['latitude']),
+                    float(origin['longitude']),
+                    float(destination['latitude']),
+                    float(destination['longitude'])
+                )
+                
+                if route_info:
+                    ride["route_info"] = route_info
+                    # Also update the database with the route info
+                    await rides_collection.update_one(
+                        {"_id": ObjectId(ride_id)},
+                        {"$set": {"route_info": route_info}}
+                    )
+            except Exception as e:
+                print(f"DEBUG: Error getting route info for ride {ride_id}: {str(e)}")
+    
     return ride
 
 @router.get("/ride-requests")
@@ -128,7 +186,8 @@ async def list_ride_requests(current_user: dict = Depends(get_current_user)):
     cursor = rides_collection.find(query).sort("departure_date", 1)
     
     async for ride in cursor:
-        ride["_id"] = str(ride["_id"])
+        ride_id = str(ride["_id"])
+        ride["_id"] = ride_id
         
         # Get creator details
         creator = await users_collection.find_one({"email": ride["creator_email"]})
@@ -147,6 +206,37 @@ async def list_ride_requests(current_user: dict = Depends(get_current_user)):
         print(f"DEBUG: Found matching ride: {origin_desc} -> {dest_desc}")
         print(f"  Communities: {ride.get('communities', [])}")
         print(f"  Status: {ride.get('status', 'N/A')}")
+        
+        # Add route information if coordinates are available
+        if (isinstance(origin, dict) and isinstance(destination, dict) and
+            origin.get('latitude') is not None and origin.get('longitude') is not None and
+            destination.get('latitude') is not None and destination.get('longitude') is not None):
+            
+            try:
+                print(f"DEBUG: Attempting route calculation for ride {ride_id[:8]}...")
+                print(f"DEBUG: Origin coords: {origin.get('latitude')}, {origin.get('longitude')}")
+                print(f"DEBUG: Dest coords: {destination.get('latitude')}, {destination.get('longitude')}")
+                
+                route_info = await google_routes_service.get_route_info(
+                    float(origin['latitude']),
+                    float(origin['longitude']),
+                    float(destination['latitude']),
+                    float(destination['longitude'])
+                )
+                
+                if route_info:
+                    ride["route_info"] = route_info
+                    print(f"DEBUG: ✅ Added route info: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
+                else:
+                    print(f"DEBUG: ❌ Google Routes API returned no data for ride {ride_id[:8]}")
+            except Exception as e:
+                print(f"DEBUG: ❌ Error getting route info for ride {ride_id[:8]}: {str(e)}")
+        else:
+            print(f"DEBUG: ❌ Missing coordinates for ride {ride_id[:8]}")
+            if isinstance(origin, dict):
+                print(f"DEBUG:   Origin lat/lng: {origin.get('latitude')}, {origin.get('longitude')}")
+            if isinstance(destination, dict):
+                print(f"DEBUG:   Dest lat/lng: {destination.get('latitude')}, {destination.get('longitude')}")
         
         rides.append(ride)
     
@@ -439,4 +529,159 @@ async def get_detailed_price_estimate(
         raise HTTPException(
             status_code=500,
             detail=f"Error calculating price estimate: {str(e)}"
+        )
+
+@router.post("/route-info")
+async def get_route_info(
+    origin: LocationData,
+    destination: LocationData,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get detailed route information using Google Routes API"""
+    
+    try:
+        # Validate coordinates
+        if not (origin.latitude and origin.longitude and destination.latitude and destination.longitude):
+            raise HTTPException(
+                status_code=400,
+                detail="Both origin and destination must have latitude and longitude coordinates"
+            )
+        
+        # Get route info from Google Routes API
+        route_info = await google_routes_service.get_route_info(
+            origin.latitude,
+            origin.longitude,
+            destination.latitude,
+            destination.longitude
+        )
+        
+        if not route_info:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to calculate route information. Google Routes API may be unavailable."
+            )
+        
+        # Add location descriptions to the response
+        return {
+            "origin": {
+                "description": origin.description,
+                "latitude": origin.latitude,
+                "longitude": origin.longitude
+            },
+            "destination": {
+                "description": destination.description,
+                "latitude": destination.latitude,
+                "longitude": destination.longitude
+            },
+            "route_info": route_info
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error calculating route information: {str(e)}"
+        )
+
+@router.post("/batch-update-route-info")
+async def batch_update_route_info(current_user: dict = Depends(get_current_user)):
+    """Batch update existing rides with route information"""
+    
+    try:
+        # Find all rides without route_info that have coordinates
+        query = {
+            "route_info": {"$exists": False},
+            "origin.latitude": {"$exists": True, "$ne": None},
+            "origin.longitude": {"$exists": True, "$ne": None},
+            "destination.latitude": {"$exists": True, "$ne": None},
+            "destination.longitude": {"$exists": True, "$ne": None}
+        }
+        
+        cursor = rides_collection.find(query)
+        updated_count = 0
+        error_count = 0
+        
+        async for ride in cursor:
+            ride_id = str(ride["_id"])
+            origin = ride.get('origin', {})
+            destination = ride.get('destination', {})
+            
+            try:
+                route_info = await google_routes_service.get_route_info(
+                    float(origin['latitude']),
+                    float(origin['longitude']),
+                    float(destination['latitude']),
+                    float(destination['longitude'])
+                )
+                
+                if route_info:
+                    await rides_collection.update_one(
+                        {"_id": ride["_id"]},
+                        {"$set": {"route_info": route_info}}
+                    )
+                    updated_count += 1
+                    print(f"DEBUG: Updated ride {ride_id[:8]} with route info: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
+                else:
+                    error_count += 1
+                    print(f"DEBUG: Failed to get route info for ride {ride_id[:8]}")
+                    
+            except Exception as e:
+                error_count += 1
+                print(f"DEBUG: Error updating ride {ride_id[:8]}: {str(e)}")
+        
+        return {
+            "message": f"Batch update completed",
+            "updated_rides": updated_count,
+            "errors": error_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error batch updating route information: {str(e)}"
+        )
+
+@router.delete("/ride-request/{ride_id}")
+async def delete_ride_request(ride_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a ride request (only by creator)"""
+    
+    try:
+        # First, check if the ride exists
+        ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        
+        # Check if the current user is the creator
+        if ride["creator_email"] != current_user["email"]:
+            raise HTTPException(
+                status_code=403, 
+                detail="Only the ride creator can delete this ride"
+            )
+        
+        # Check if there are other participants (besides creator)
+        other_participants = [email for email in ride["user_ids"] if email != current_user["email"]]
+        if other_participants:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete ride with {len(other_participants)} other participant(s). Ask them to leave first."
+            )
+        
+        # Delete the ride
+        result = await rides_collection.delete_one({"_id": ObjectId(ride_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        
+        return {
+            "message": "Ride deleted successfully",
+            "ride_id": ride_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting ride: {str(e)}"
         )

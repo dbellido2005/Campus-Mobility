@@ -6,6 +6,8 @@ from datetime import datetime
 
 class User(BaseModel):
     name: Optional[str] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
     email: EmailStr
     password: str
     college: str
@@ -45,6 +47,8 @@ class ResendVerification(BaseModel):
 # Profile Management Models
 class UserProfileUpdate(BaseModel):
     name: Optional[str] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
     year: Optional[str] = None
     major: Optional[str] = None
     bio: Optional[str] = None
@@ -71,6 +75,8 @@ class UberShareStats(BaseModel):
 
 class UserProfileResponse(BaseModel):
     name: Optional[str] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
     email: str
     college: str
     year: Optional[str] = None

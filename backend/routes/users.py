@@ -315,6 +315,8 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
     
     return UserProfileResponse(
         name=user.get('name'),
+        firstName=user.get('firstName'),
+        lastName=user.get('lastName'),
         email=user['email'],
         college=user['college'],
         year=user.get('year'),
@@ -336,6 +338,10 @@ async def update_user_profile(
     update_data = {}
     if profile_update.name is not None:
         update_data["name"] = profile_update.name
+    if profile_update.firstName is not None:
+        update_data["firstName"] = profile_update.firstName
+    if profile_update.lastName is not None:
+        update_data["lastName"] = profile_update.lastName
     if profile_update.year is not None:
         update_data["year"] = profile_update.year
     if profile_update.major is not None:
@@ -371,6 +377,8 @@ async def update_user_profile(
     
     return UserProfileResponse(
         name=updated_user.get('name'),
+        firstName=updated_user.get('firstName'),
+        lastName=updated_user.get('lastName'),
         email=updated_user['email'],
         college=updated_user['college'],
         year=updated_user.get('year'),
@@ -447,6 +455,8 @@ async def upload_profile_picture(
         
         return UserProfileResponse(
             name=updated_user.get('name'),
+            firstName=updated_user.get('firstName'),
+            lastName=updated_user.get('lastName'),
             email=updated_user['email'],
             college=updated_user['college'],
             year=updated_user.get('year'),
