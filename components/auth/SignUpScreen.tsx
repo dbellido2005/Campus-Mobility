@@ -39,8 +39,8 @@ export default function SignUpScreen({ onSignUpSuccess, onSwitchToLogin }: SignU
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           email: email.toLowerCase(),
-          password,
-          college: emailValidation.college?.name
+          password
+          // college is now detected automatically by AI
         }),
       });
 

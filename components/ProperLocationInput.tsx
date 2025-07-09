@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, TextInput, StyleSheet, FlatList, TouchableOpacity, Text } from 'react-native';
 import { IconButton } from 'react-native-paper';
 
-const GOOGLE_PLACES_API_KEY = 'AIzaSyAfLzp1VqK5YdO5wIgQSAaC9XCp_aj7zeo';
+const API_BASE_URL = 'http://172.28.119.64:8000';
 
 interface LocationData {
   description: string;
@@ -47,21 +47,22 @@ export default function ProperLocationInput({
     setIsLoading(true);
 
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-          query
-        )}&key=${GOOGLE_PLACES_API_KEY}&types=establishment|geocode&components=country:us`
-      );
+      const response = await fetch(`${API_BASE_URL}/places/autocomplete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
 
       const data = await response.json();
 
-      if (data.predictions) {
-        const formattedSuggestions = data.predictions.map((prediction: any) => ({
-          place_id: prediction.place_id,
-          description: prediction.description,
-        }));
-        setSuggestions(formattedSuggestions);
-        setShowSuggestions(formattedSuggestions.length > 0);
+      if (response.ok && data.suggestions) {
+        setSuggestions(data.suggestions);
+        setShowSuggestions(data.suggestions.length > 0);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
       }
     } catch (error) {
       console.error('Error fetching places:', error);
@@ -77,11 +78,9 @@ export default function ProperLocationInput({
     onLocationSelect({ description: text });
     
     // Debounce the API call
-    const timeoutId = setTimeout(() => {
+    setTimeout(() => {
       searchPlaces(text);
     }, 300);
-
-    return () => clearTimeout(timeoutId);
   };
 
   const selectSuggestion = async (suggestion: Suggestion) => {
@@ -91,17 +90,21 @@ export default function ProperLocationInput({
 
     try {
       // Get detailed place information including coordinates
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${suggestion.place_id}&fields=geometry,name&key=${GOOGLE_PLACES_API_KEY}`
-      );
+      const response = await fetch(`${API_BASE_URL}/places/details`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ place_id: suggestion.place_id }),
+      });
 
       const data = await response.json();
 
-      if (data.result && data.result.geometry) {
+      if (response.ok && data.location) {
         const location: LocationData = {
           description: suggestion.description,
-          latitude: data.result.geometry.location.lat,
-          longitude: data.result.geometry.location.lng,
+          latitude: data.location.latitude,
+          longitude: data.location.longitude,
         };
         onLocationSelect(location);
       } else {

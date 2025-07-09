@@ -48,13 +48,23 @@ export const validateCollegeEmail = (email: string): { isValid: boolean; college
     return { isValid: false, error: 'Only .edu email addresses are allowed' };
   }
 
+  // Check if it's a known college from our legacy mapping
   const college = COLLEGE_DOMAINS[domain];
   
-  if (!college) {
-    return { isValid: false, error: 'Email domain not recognized. Only Claremont Colleges and Carnegie Mellon are supported.' };
+  if (college) {
+    return { isValid: true, college };
   }
 
-  return { isValid: true, college };
+  // For unknown domains, let the backend AI handle validation
+  // Return as valid so the request goes to the backend
+  return { 
+    isValid: true, 
+    college: {
+      name: 'Unknown University',
+      shortName: 'Unknown',
+      domain: domain
+    }
+  };
 };
 
 export const getCollegeFromEmail = (email: string): College | null => {

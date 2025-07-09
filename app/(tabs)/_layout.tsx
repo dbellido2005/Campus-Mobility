@@ -3,14 +3,15 @@ import React from 'react';
 import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 //Icons
-import { FontAwesome, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { FontAwesome, FontAwesome5, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { IconSymbol } from '@/components/ui/IconSymbol';
+
 
 
 export default function TabLayout() {
@@ -42,7 +43,7 @@ export default function TabLayout() {
         name="Explore"
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <MaterialCommunityIcons name="bag-personal" size={28} color="black" />,
         }}
       />
       <Tabs.Screen
@@ -55,15 +56,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="FindDrivers"
         options={{
-          title: 'Find Drivers',
-          tabBarIcon: ({ color }) => <MaterialCommunityIcons name="account-tie" size={28} color="black" />,
+          href: null, // This hides the tab from the tab bar
         }}
       />
       <Tabs.Screen
         name="FindRiders"
         options={{
-          title: 'Find Riders',
-          tabBarIcon: ({ color }) => <FontAwesome name="users" size={24} />,
+          href: null, // This hides the tab from the tab bar
         }}
       />
     </Tabs>

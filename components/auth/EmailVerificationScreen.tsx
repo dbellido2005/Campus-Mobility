@@ -44,7 +44,7 @@ export default function EmailVerificationScreen({
         Alert.alert(
           'Email Verified!',
           `Welcome to Campus Mobility! Your ${college.name} account has been created.`,
-          [{ text: 'Continue', onPress: () => onVerificationSuccess(data.user) }]
+          [{ text: 'Continue', onPress: () => onVerificationSuccess(data) }]
         );
       } else {
         Alert.alert('Verification Failed', data.message || 'Invalid verification code');
