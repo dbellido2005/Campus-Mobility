@@ -4,10 +4,11 @@ import ProfileScreen from '@/components/ProfileScreen';
 import LoginScreen from '@/components/auth/LoginScreen';
 import SignUpScreen from '@/components/auth/SignUpScreen';
 import EmailVerificationScreen from '@/components/auth/EmailVerificationScreen';
+import ForgotPasswordScreen from '@/components/auth/ForgotPasswordScreen';
 import Loading from '@/app/Loading';
 import { College } from '@/utils/collegeUtils';
 
-type AuthState = 'loading' | 'login' | 'signup' | 'verification' | 'authenticated';
+type AuthState = 'loading' | 'login' | 'signup' | 'verification' | 'forgot-password' | 'authenticated';
 
 interface VerificationData {
   email: string;
@@ -97,6 +98,7 @@ export default function HomeContent() {
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
           onSwitchToSignUp={() => setAuthState('signup')}
+          onForgotPassword={() => setAuthState('forgot-password')}
         />
       )}
       
@@ -113,6 +115,13 @@ export default function HomeContent() {
           college={verificationData.college}
           onVerificationSuccess={handleVerificationSuccess}
           onBack={() => setAuthState('signup')}
+        />
+      )}
+      
+      {authState === 'forgot-password' && (
+        <ForgotPasswordScreen
+          onBackToLogin={() => setAuthState('login')}
+          onResetSuccess={() => setAuthState('login')}
         />
       )}
     </>

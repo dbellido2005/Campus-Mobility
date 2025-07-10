@@ -54,6 +54,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="Messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color }) => <MaterialIcons name="message" size={28} color="black" />,
+        }}
+      />
+      <Tabs.Screen
         name="FindDrivers"
         options={{
           href: null, // This hides the tab from the tab bar

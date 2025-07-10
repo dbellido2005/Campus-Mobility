@@ -5,12 +5,14 @@ import { TextInput, Button, Text, Card } from 'react-native-paper';
 interface LoginScreenProps {
   onLoginSuccess: (userData: any) => void;
   onSwitchToSignUp: () => void;
+  onForgotPassword?: () => void;
 }
 
-export default function LoginScreen({ onLoginSuccess, onSwitchToSignUp }: LoginScreenProps) {
+export default function LoginScreen({ onLoginSuccess, onSwitchToSignUp, onForgotPassword }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -35,18 +37,8 @@ export default function LoginScreen({ onLoginSuccess, onSwitchToSignUp }: LoginS
       if (response.ok) {
         onLoginSuccess(data);
       } else {
-        if (data.message === 'Email not verified') {
-          Alert.alert(
-            'Email Not Verified',
-            'Please check your email and click the verification link before logging in.',
-            [
-              { text: 'OK' },
-              { text: 'Resend Email', onPress: () => handleResendVerification() }
-            ]
-          );
-        } else {
-          Alert.alert('Login Failed', data.message || 'Invalid email or password');
-        }
+        // Use the improved error messages from backend
+        Alert.alert('Login Failed', data.detail || data.message || 'Login failed');
       }
     } catch (error) {
       Alert.alert('Error', 'Unable to connect to server');
@@ -98,9 +90,15 @@ export default function LoginScreen({ onLoginSuccess, onSwitchToSignUp }: LoginS
             label="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             style={styles.input}
             mode="outlined"
+            right={
+              <TextInput.Icon
+                icon={showPassword ? "eye-off" : "eye"}
+                onPress={() => setShowPassword(!showPassword)}
+              />
+            }
           />
 
           <Button
@@ -112,6 +110,16 @@ export default function LoginScreen({ onLoginSuccess, onSwitchToSignUp }: LoginS
           >
             Log In
           </Button>
+
+          {onForgotPassword && (
+            <Button
+              mode="text"
+              onPress={onForgotPassword}
+              style={styles.forgotButton}
+            >
+              Forgot Password?
+            </Button>
+          )}
 
           <Button
             mode="text"
@@ -150,6 +158,10 @@ const styles = StyleSheet.create({
   button: {
     marginTop: 8,
     marginBottom: 16,
+  },
+  forgotButton: {
+    marginTop: 4,
+    marginBottom: 8,
   },
   switchButton: {
     marginTop: 8,

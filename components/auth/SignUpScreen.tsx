@@ -13,6 +13,8 @@ export default function SignUpScreen({ onSignUpSuccess, onSwitchToLogin }: SignU
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSignUp = async () => {
     if (password !== confirmPassword) {
@@ -53,7 +55,7 @@ export default function SignUpScreen({ onSignUpSuccess, onSwitchToLogin }: SignU
           [{ text: 'OK', onPress: () => onSignUpSuccess(email, emailValidation.college!) }]
         );
       } else {
-        Alert.alert('Sign Up Failed', data.message || 'Unable to create account');
+        Alert.alert('Sign Up Failed', data.detail || data.message || 'Unable to create account');
       }
     } catch (error) {
       Alert.alert('Error', 'Unable to connect to server');
@@ -87,18 +89,30 @@ export default function SignUpScreen({ onSignUpSuccess, onSwitchToLogin }: SignU
             label="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             style={styles.input}
             mode="outlined"
+            right={
+              <TextInput.Icon
+                icon={showPassword ? "eye-off" : "eye"}
+                onPress={() => setShowPassword(!showPassword)}
+              />
+            }
           />
 
           <TextInput
             label="Confirm Password"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            secureTextEntry
+            secureTextEntry={!showConfirmPassword}
             style={styles.input}
             mode="outlined"
+            right={
+              <TextInput.Icon
+                icon={showConfirmPassword ? "eye-off" : "eye"}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              />
+            }
           />
 
           <Button

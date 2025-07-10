@@ -6,10 +6,12 @@ import {
   ScrollView, 
   Alert, 
   RefreshControl,
-  Dimensions
+  Dimensions,
+  Modal
 } from 'react-native';
 import { Card, Button, Chip, IconButton } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MessagingScreen from '@/components/messaging/MessagingScreen';
 
 const API_BASE_URL = 'http://172.28.119.64:8000';
 const { width } = Dimensions.get('window');
@@ -55,6 +57,8 @@ export default function ExploreScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [showMessaging, setShowMessaging] = useState(false);
+  const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRides();
@@ -175,8 +179,13 @@ export default function ExploreScreen() {
   };
 
   const handleMessageRide = (rideId: string) => {
-    // TODO: Implement messaging functionality
-    Alert.alert('Message', 'Messaging functionality coming soon!');
+    setSelectedRideId(rideId);
+    setShowMessaging(true);
+  };
+
+  const closeMessaging = () => {
+    setShowMessaging(false);
+    setSelectedRideId(null);
   };
 
   const formatTime = (minutes: number) => {
@@ -210,7 +219,8 @@ export default function ExploreScreen() {
   };
 
   const isUserJoined = (ride: RidePost) => {
-    return currentUserEmail && ride.user_ids.includes(currentUserEmail);
+    return currentUserEmail && 
+           (ride.user_ids.includes(currentUserEmail) || ride.creator_email === currentUserEmail);
   };
 
   const isUserCreator = (ride: RidePost) => {
@@ -413,33 +423,48 @@ export default function ExploreScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Available Rides</Text>
-        <IconButton
-          icon="refresh"
-          size={24}
-          onPress={onRefresh}
-        />
-      </View>
-
-      {rides.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No rides available for your community</Text>
-          <Text style={styles.emptySubtext}>
-            Check back later or create a ride in the Uber Share tab!
-          </Text>
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Available Rides</Text>
+          <IconButton
+            icon="refresh"
+            size={24}
+            onPress={onRefresh}
+          />
         </View>
-      ) : (
-        rides.map(renderRideCard)
-      )}
-    </ScrollView>
+
+        {rides.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No rides available for your community</Text>
+            <Text style={styles.emptySubtext}>
+              Check back later or create a ride in the Uber Share tab!
+            </Text>
+          </View>
+        ) : (
+          rides.map(renderRideCard)
+        )}
+      </ScrollView>
+
+      <Modal
+        visible={showMessaging}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        {selectedRideId && (
+          <MessagingScreen
+            rideId={selectedRideId}
+            onBack={closeMessaging}
+          />
+        )}
+      </Modal>
+    </>
   );
 }
 

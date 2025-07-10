@@ -473,17 +473,15 @@ export default function ShareScreen() {
       <View style={styles.communitySection}>
         <View style={styles.communitySectionHeader}>
           <Text style={styles.sectionLabel}>Community</Text>
-          {communityOptions?.source === 'legacy' && (
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={refreshUniversityInfo}
-              disabled={loadingCommunities}
-            >
-              <Text style={styles.refreshButtonText}>
-                {loadingCommunities ? 'Refreshing...' : 'Update Communities'}
-              </Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={refreshUniversityInfo}
+            disabled={loadingCommunities}
+          >
+            <Text style={styles.refreshButtonText}>
+              {loadingCommunities ? 'Refreshing...' : 'Refresh'}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.communityContainer}>
           {loadingCommunities ? (
