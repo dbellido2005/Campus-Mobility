@@ -6,6 +6,7 @@ import {
   Text,
   ScrollView,
   RefreshControl,
+  Keyboard,
 } from 'react-native';
 import { Card, Button, Chip, IconButton } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,6 +25,12 @@ interface Question {
   ride_origin?: string;
   ride_destination?: string;
   departure_date?: string;
+  ride_deleted?: boolean;  // Indicates if the ride post was deleted
+  // Detailed status information
+  ride_status?: string;  // "active", "full", "completed", "cancelled"
+  ride_communities?: string[];  // Communities the ride is available to
+  user_can_access?: boolean;  // Whether current user can access this ride
+  unavailable_reason?: string;  // Reason why ride is unavailable
 }
 
 interface PrivateResponse {
@@ -121,17 +128,47 @@ export default function MyQuestionsScreen({ onBack }: MyQuestionsScreenProps) {
   };
 
   const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
+    // Ensure proper timestamp parsing with timezone handling
+    let date: Date;
+    
+    // Handle different timestamp formats
+    if (timestamp.endsWith('Z') || timestamp.includes('+') || timestamp.includes('-')) {
+      // Already has timezone info
+      date = new Date(timestamp);
+    } else {
+      // Assume UTC if no timezone specified
+      date = new Date(timestamp + (timestamp.includes('T') ? 'Z' : 'T00:00:00Z'));
+    }
+    
+    // Check if the date is valid
+    if (isNaN(date.getTime())) {
+      console.error('Invalid timestamp:', timestamp);
+      return 'Invalid time';
+    }
+    
+    // Format using device's local timezone - this automatically converts from UTC
+    return date.toLocaleString([], {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
   };
 
   const formatTripInfo = (question: Question) => {
+    if (question.ride_deleted) {
+      return 'This ride post has been deleted';
+    }
+    
+    if (!question.user_can_access && question.unavailable_reason) {
+      const origin = question.ride_origin || 'Unknown';
+      const destination = question.ride_destination || 'Unknown';
+      const tripRoute = `${origin} → ${destination}`;
+      return `${tripRoute} - ${question.unavailable_reason}`;
+    }
+    
     const origin = question.ride_origin || 'Unknown';
     const destination = question.ride_destination || 'Unknown';
     
@@ -178,6 +215,8 @@ export default function MyQuestionsScreen({ onBack }: MyQuestionsScreenProps) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
       >
         {questions.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -191,15 +230,33 @@ export default function MyQuestionsScreen({ onBack }: MyQuestionsScreenProps) {
             <Card key={question.question_id} style={styles.questionCard}>
               <Card.Content>
                 <View style={styles.questionHeader}>
-                  <Chip 
-                    icon="help-circle" 
-                    style={[
-                      styles.statusChip,
-                      question.response_count > 0 ? styles.answeredChip : styles.pendingChip
-                    ]}
-                  >
-                    {question.response_count > 0 ? 'Answered' : 'Pending'}
-                  </Chip>
+                  <View style={styles.statusChips}>
+                    {question.ride_deleted ? (
+                      <Chip 
+                        icon="delete" 
+                        style={[styles.statusChip, styles.deletedChip]}
+                      >
+                        Ride Deleted
+                      </Chip>
+                    ) : !question.user_can_access ? (
+                      <Chip 
+                        icon="lock" 
+                        style={[styles.statusChip, styles.unavailableChip]}
+                      >
+                        Unavailable
+                      </Chip>
+                    ) : (
+                      <Chip 
+                        icon="help-circle" 
+                        style={[
+                          styles.statusChip,
+                          question.response_count > 0 ? styles.answeredChip : styles.pendingChip
+                        ]}
+                      >
+                        {question.response_count > 0 ? 'Answered' : 'Pending'}
+                      </Chip>
+                    )}
+                  </View>
                   <Text style={styles.questionTime}>
                     {formatTime(question.timestamp)}
                   </Text>
@@ -215,7 +272,7 @@ export default function MyQuestionsScreen({ onBack }: MyQuestionsScreenProps) {
                   {question.question}
                 </Text>
 
-                {question.response_count > 0 && (
+                {question.response_count > 0 && !question.ride_deleted && (
                   <Button
                     mode="outlined"
                     onPress={() => toggleExpanded(question.question_id)}
@@ -227,6 +284,12 @@ export default function MyQuestionsScreen({ onBack }: MyQuestionsScreenProps) {
                       : `View ${question.response_count} Response${question.response_count > 1 ? 's' : ''}`
                     }
                   </Button>
+                )}
+
+                {question.response_count > 0 && question.ride_deleted && (
+                  <Text style={styles.deletedResponseNote}>
+                    📄 {question.response_count} response{question.response_count > 1 ? 's' : ''} received before ride was deleted
+                  </Text>
                 )}
 
                 {expandedQuestions.has(question.question_id) && responses[question.question_id] && (
@@ -316,6 +379,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  statusChips: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   statusChip: {
     height: 32,
   },
@@ -324,6 +391,12 @@ const styles = StyleSheet.create({
   },
   pendingChip: {
     backgroundColor: '#ffecb3',
+  },
+  deletedChip: {
+    backgroundColor: '#ffcdd2',
+  },
+  unavailableChip: {
+    backgroundColor: '#fff3e0',
   },
   questionTime: {
     fontSize: 12,
@@ -349,6 +422,16 @@ const styles = StyleSheet.create({
   viewResponsesButton: {
     alignSelf: 'flex-start',
     marginTop: 8,
+  },
+  deletedResponseNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 6,
   },
   responsesContainer: {
     marginTop: 16,

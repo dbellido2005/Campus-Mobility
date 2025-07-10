@@ -7,7 +7,8 @@ import {
   Alert, 
   RefreshControl,
   Dimensions,
-  Modal
+  Modal,
+  Keyboard
 } from 'react-native';
 import { Card, Button, Chip, IconButton } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -430,6 +431,8 @@ export default function ExploreScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Available Rides</Text>

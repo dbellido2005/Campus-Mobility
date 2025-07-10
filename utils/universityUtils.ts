@@ -60,6 +60,17 @@ export const getCommunityOptions = async (): Promise<CommunityOptions> => {
     }
 
     const data = await response.json();
+    
+    // Filter out "Open to all" and "Unknown" from communities
+    if (data.communities) {
+      data.communities = data.communities.filter((community: string) => 
+        community !== 'Open to all' && 
+        community !== 'Unknown' &&
+        community.toLowerCase() !== 'open to all' &&
+        community.toLowerCase() !== 'unknown'
+      );
+    }
+    
     return data;
   } catch (error) {
     console.error('Error fetching community options:', error);

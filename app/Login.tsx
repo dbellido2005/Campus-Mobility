@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, TextInput, Button, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
+import { View, TextInput, Button, Text, StyleSheet, Alert, TouchableOpacity, ScrollView, Keyboard } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -102,7 +102,12 @@ const LoginScreen = ({ navigation }: Props) => {
   }, []);
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+      onScrollBeginDrag={() => Keyboard.dismiss()}
+    >
+    <View style={styles.innerContainer}>
       <TextInput
         placeholder="Email"
         style={styles.input}
@@ -148,13 +153,15 @@ const LoginScreen = ({ navigation }: Props) => {
         </>
       )}
     </View>
+    </ScrollView>
   );
 };
 
 export default LoginScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 20 },
+  container: { flexGrow: 1, justifyContent: "center", padding: 20 },
+  innerContainer: { flex: 1, justifyContent: "center" },
   input: { borderWidth: 1, marginBottom: 10, padding: 10, borderRadius: 5 },
   forgotButton: { marginTop: 10, alignItems: "center" },
   forgotText: { color: "#007AFF", textDecorationLine: "underline" },
