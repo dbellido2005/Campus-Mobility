@@ -73,6 +73,36 @@ export default function ShareScreen() {
     }
   };
 
+  const refreshUniversityInfo = async () => {
+    try {
+      setLoadingCommunities(true);
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/refresh-university-info`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', 'University information updated! Communities will refresh automatically.');
+        // Reload communities after refresh
+        await loadCommunityOptions();
+      } else {
+        const error = await response.json();
+        Alert.alert('Error', error.detail || 'Failed to refresh university information');
+      }
+    } catch (error) {
+      console.error('Error refreshing university info:', error);
+      Alert.alert('Error', 'Unable to refresh university information');
+    } finally {
+      setLoadingCommunities(false);
+    }
+  };
+
   const setCurrentLocationAsSelected = async (isFrom: boolean) => {
     try {
       // Always get fresh location
@@ -440,12 +470,27 @@ export default function ShareScreen() {
 
 
       {/* Community */}
-      <View style={styles.communityContainer}>
-        {loadingCommunities ? (
-          <Text style={styles.loadingText}>Loading communities...</Text>
-        ) : (
-          <>
-            {communityOptions?.communities.map((community) => (
+      <View style={styles.communitySection}>
+        <View style={styles.communitySectionHeader}>
+          <Text style={styles.sectionLabel}>Community</Text>
+          {communityOptions?.source === 'legacy' && (
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={refreshUniversityInfo}
+              disabled={loadingCommunities}
+            >
+              <Text style={styles.refreshButtonText}>
+                {loadingCommunities ? 'Refreshing...' : 'Update Communities'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={styles.communityContainer}>
+          {loadingCommunities ? (
+            <Text style={styles.loadingText}>Loading communities...</Text>
+          ) : (
+            <>
+              {communityOptions?.communities.map((community) => (
               <TouchableOpacity
                 key={community}
                 style={[
@@ -464,24 +509,25 @@ export default function ShareScreen() {
               </TouchableOpacity>
             ))}
             
-            {/* Show university info for context */}
-            {communityOptions && communityOptions.source === 'ai_powered' && (
-              <View style={styles.universityInfoContainer}>
-                <Text style={styles.universityInfoText}>
-                  📍 {communityOptions.user_university.name}
-                </Text>
-                <Text style={styles.universityInfoSubtext}>
-                  {communityOptions.user_university.city}, {communityOptions.user_university.state}
-                </Text>
-                {communityOptions.nearby_universities.length > 0 && (
-                  <Text style={styles.nearbyText}>
-                    + {communityOptions.nearby_universities.length} nearby universities
+              {/* Show university info for context */}
+              {communityOptions && communityOptions.source === 'ai_powered' && (
+                <View style={styles.universityInfoContainer}>
+                  <Text style={styles.universityInfoText}>
+                    📍 {communityOptions.user_university.name}
                   </Text>
-                )}
-              </View>
-            )}
-          </>
-        )}
+                  <Text style={styles.universityInfoSubtext}>
+                    {communityOptions.user_university.city}, {communityOptions.user_university.state}
+                  </Text>
+                  {communityOptions.nearby_universities.length > 0 && (
+                    <Text style={styles.nearbyText}>
+                      + {communityOptions.nearby_universities.length} nearby universities
+                    </Text>
+                  )}
+                </View>
+              )}
+            </>
+          )}
+        </View>
       </View>
 
       <TouchableOpacity 
@@ -522,6 +568,26 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     color: '#666',
+  },
+  communitySection: {
+    marginBottom: 20,
+  },
+  communitySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  refreshButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  refreshButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '500',
   },
   communityContainer: {
     flexDirection: 'row',
