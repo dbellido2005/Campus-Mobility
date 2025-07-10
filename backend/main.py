@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from routes import users, rides, places
+from routes import users, rides, places, communities, messaging
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -14,6 +14,8 @@ app = FastAPI()
 app.include_router(users.router)
 app.include_router(rides.router)
 app.include_router(places.router)
+app.include_router(communities.router)
+app.include_router(messaging.router)
 
 # Frontend connection
 app.add_middleware(

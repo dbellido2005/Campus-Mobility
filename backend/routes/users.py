@@ -1,8 +1,8 @@
 # routes/users.py
 from fastapi import APIRouter, HTTPException, status, Depends
-from models import User, UserSignUp, UserLogin, EmailVerification, ResendVerification, UserProfileUpdate, UserProfileResponse, ProfilePictureUpload, UberShareStats, FrequentRider, FrequentDestination
+from models import User, UserSignUp, UserLogin, EmailVerification, ResendVerification, ForgotPassword, ResetPassword, UserProfileUpdate, UserProfileResponse, ProfilePictureUpload, UberShareStats, FrequentRider, FrequentDestination
 from database import users_collection, rides_collection
-from utils.email_utils import validate_college_email, generate_verification_code, get_verification_expiry, send_verification_email
+from utils.email_utils import validate_college_email, generate_verification_code, get_verification_expiry, send_verification_email, generate_reset_code, get_reset_expiry, send_password_reset_email
 from utils.auth_utils import hash_password, verify_password, create_access_token, get_current_user
 from datetime import datetime, timedelta
 from collections import Counter
@@ -97,7 +97,7 @@ async def calculate_uber_share_stats(user_email: str) -> UberShareStats:
 async def sign_up(user_data: UserSignUp):
     """Sign up a new user with email verification"""
     
-    # Validate college email
+    # Validate college email with AI-powered detection
     email_validation = validate_college_email(user_data.email)
     if not email_validation['valid']:
         raise HTTPException(
@@ -110,8 +110,8 @@ async def sign_up(user_data: UserSignUp):
     if existing_user:
         if existing_user.get('is_verified'):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User already exists and is verified"
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists. Please use the login screen or try 'Forgot Password' if you can't remember your password"
             )
         else:
             # User exists but not verified, update verification code
@@ -124,7 +124,8 @@ async def sign_up(user_data: UserSignUp):
                     "$set": {
                         "verification_code": verification_code,
                         "verification_expires": verification_expires,
-                        "password": hash_password(user_data.password)
+                        "password": hash_password(user_data.password),
+                        "college": email_validation['college']  # Update with AI-detected college
                     }
                 }
             )
@@ -136,15 +137,22 @@ async def sign_up(user_data: UserSignUp):
                 "email": user_data.email.lower()
             }
     
-    # Create new user
+    # Create new user with enhanced university information
     verification_code = generate_verification_code()
     verification_expires = get_verification_expiry()
     hashed_password = hash_password(user_data.password)
     
+    # Create university_info from AI detection result
+    university_info = None
+    if 'university_info' in email_validation:
+        from models import UniversityInfo
+        university_info = UniversityInfo(**email_validation['university_info'])
+    
     user = User(
         email=user_data.email.lower(),
         password=hashed_password,
-        college=email_validation['college'],
+        college=email_validation['college'],  # AI-detected college
+        university_info=university_info,
         verification_code=verification_code,
         verification_expires=verification_expires
     )
@@ -258,20 +266,20 @@ async def login(login_data: UserLogin):
     user = await users_collection.find_one({"email": login_data.email.lower()})
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email address. Please check your email or sign up for a new account"
         )
     
     if not user.get('is_verified'):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email not verified"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please check your email for the verification code"
         )
     
     if not verify_password(login_data.password, user['password']):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Incorrect password. Please check your password or use 'Forgot Password' to reset it"
         )
     
     # Create access token
@@ -537,4 +545,126 @@ async def delete_account(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete account: {str(e)}"
+        )
+
+@router.post("/forgot-password")
+async def forgot_password(forgot_data: ForgotPassword):
+    """Send password reset code to user's email"""
+    try:
+        # Check if user exists
+        user = await users_collection.find_one({"email": forgot_data.email.lower()})
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this email address"
+            )
+        
+        # Check if user is verified
+        if not user.get('is_verified', False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Account not verified. Please verify your email first"
+            )
+        
+        # Generate reset code
+        reset_code = generate_reset_code()
+        reset_expires = get_reset_expiry()
+        
+        # Update user with reset code
+        await users_collection.update_one(
+            {"email": forgot_data.email.lower()},
+            {
+                "$set": {
+                    "reset_code": reset_code,
+                    "reset_expires": reset_expires
+                }
+            }
+        )
+        
+        # Send reset email
+        college = user.get('college', 'Unknown')
+        send_password_reset_email(forgot_data.email, reset_code, college)
+        
+        return {
+            "message": "Password reset code sent to your email",
+            "email": forgot_data.email.lower()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process password reset request"
+        )
+
+@router.post("/reset-password")
+async def reset_password(reset_data: ResetPassword):
+    """Reset user's password using reset code"""
+    try:
+        # Find user by email
+        user = await users_collection.find_one({"email": reset_data.email.lower()})
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this email address"
+            )
+        
+        # Check if user has reset code
+        if not user.get('reset_code'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No password reset request found. Please request a new reset code"
+            )
+        
+        # Check if reset code matches
+        if user.get('reset_code') != reset_data.reset_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid reset code"
+            )
+        
+        # Check if reset code has expired
+        reset_expires = user.get('reset_expires')
+        if not reset_expires or datetime.utcnow() > reset_expires:
+            # Clear expired reset code
+            await users_collection.update_one(
+                {"email": reset_data.email.lower()},
+                {"$unset": {"reset_code": "", "reset_expires": ""}}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Reset code has expired. Please request a new one"
+            )
+        
+        # Validate new password (basic validation)
+        if len(reset_data.new_password) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 6 characters long"
+            )
+        
+        # Hash new password
+        hashed_password = hash_password(reset_data.new_password)
+        
+        # Update user's password and clear reset code
+        await users_collection.update_one(
+            {"email": reset_data.email.lower()},
+            {
+                "$set": {"password": hashed_password},
+                "$unset": {"reset_code": "", "reset_expires": ""}
+            }
+        )
+        
+        return {
+            "message": "Password reset successfully. You can now log in with your new password",
+            "email": reset_data.email.lower()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
         )

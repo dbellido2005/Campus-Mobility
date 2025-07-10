@@ -4,6 +4,7 @@ from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
 from services.uber_pricing import uber_pricing_service
 from services.google_routes import google_routes_service
+from services.university_detection import university_service
 from bson import ObjectId
 from typing import List
 from datetime import datetime
@@ -61,24 +62,14 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
         ride_post.destination.latitude is not None and ride_post.destination.longitude is not None):
         
         try:
-            print(f"DEBUG: Getting route info for new ride...")
             route_info = await google_routes_service.get_route_info(
                 ride_post.origin.latitude,
                 ride_post.origin.longitude,
                 ride_post.destination.latitude,
                 ride_post.destination.longitude
             )
-            
-            if route_info:
-                print(f"DEBUG: ✅ Route info obtained: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
-            else:
-                print(f"DEBUG: ❌ Google Routes API returned no data for new ride")
         except Exception as e:
-            print(f"DEBUG: ❌ Error getting route info for new ride: {str(e)}")
-    else:
-        print(f"DEBUG: ❌ Missing coordinates for new ride")
-        print(f"DEBUG:   Origin: {ride_post.origin.latitude}, {ride_post.origin.longitude}")
-        print(f"DEBUG:   Destination: {ride_post.destination.latitude}, {ride_post.destination.longitude}")
+            pass  # Route info is optional
     
     # Create ride request (with None values if APIs unavailable)
     ride_request_data = {
@@ -142,7 +133,7 @@ async def get_ride_request(ride_id: str):
                         {"$set": {"route_info": route_info}}
                     )
             except Exception as e:
-                print(f"DEBUG: Error getting route info for ride {ride_id}: {str(e)}")
+                print(f"Error fetching route info: {e}")
     
     return ride
 
@@ -157,123 +148,61 @@ async def list_ride_requests(current_user: dict = Depends(get_current_user)):
     
     user_college = user_doc["college"]
     
-    # Map college names to community names (as they appear in the communities list)
-    college_to_community = {
-        "Pomona College": "Pomona",
-        "Harvey Mudd College": "Harvey Mudd",
-        "Scripps College": "Scripps", 
-        "Pitzer College": "Pitzer",
-        "Claremont McKenna College": "CMC"
-    }
+    # Get user's normalized community name for filtering
+    user_community = None
     
-    user_community = college_to_community.get(user_college, user_college)
+    # Try to get community from university_info (AI detection)
+    university_info = user_doc.get("university_info")
+    if university_info:
+        raw_community = university_info.get("short_name", university_info.get("university_name"))
+        user_community = university_service.normalize_community_name(raw_community) if raw_community else None
+    
+    # Fallback to normalizing the college field directly
+    if not user_community:
+        user_community = university_service.normalize_community_name(user_college) if user_college else None
+    
+    # Final fallback: use the college name directly (normalized)
+    if not user_community:
+        user_community = user_college
     
     # Debug logging
-    print(f"DEBUG: User {current_user['email']} college: {user_college}")
-    print(f"DEBUG: User community: {user_community}")
+    print(f"DEBUG: User {current_user['email']} looking for rides")
+    print(f"  Raw college: '{user_college}'")
+    print(f"  Normalized community: '{user_community}'")
     
-    # Find rides that include the user's community and are still active
+    # Find rides and check both original and normalized community names
     rides = []
     
-    # Debug the query we're about to run
-    query = {
-        "communities": {"$in": [user_community]},
-        "status": "active"
-    }
-    print(f"DEBUG: Running query: {query}")
-    
-    # Use MongoDB array query to find rides that include the user's community
-    cursor = rides_collection.find(query).sort("departure_date", 1)
+    # Get all active rides first, then filter with normalization
+    cursor = rides_collection.find({"status": "active"}).sort("departure_date", 1)
     
     async for ride in cursor:
-        ride_id = str(ride["_id"])
-        ride["_id"] = ride_id
+        ride_communities = ride.get("communities", [])
         
-        # Get creator details
-        creator = await users_collection.find_one({"email": ride["creator_email"]})
-        ride["creator_name"] = creator.get("name") if creator else None
+        # Normalize ride communities for comparison
+        normalized_ride_communities = [
+            university_service.normalize_community_name(community) 
+            for community in ride_communities
+        ]
         
-        # Calculate available spots
-        ride["available_spots"] = ride["max_participants"] - len(ride["user_ids"])
-        
-        # Safe handling for debug output
-        origin = ride.get('origin', {})
-        destination = ride.get('destination', {})
-        
-        origin_desc = origin.get('description', 'N/A') if isinstance(origin, dict) else str(origin)
-        dest_desc = destination.get('description', 'N/A') if isinstance(destination, dict) else str(destination)
-        
-        print(f"DEBUG: Found matching ride: {origin_desc} -> {dest_desc}")
-        print(f"  Communities: {ride.get('communities', [])}")
-        print(f"  Status: {ride.get('status', 'N/A')}")
-        
-        # Add route information if coordinates are available
-        if (isinstance(origin, dict) and isinstance(destination, dict) and
-            origin.get('latitude') is not None and origin.get('longitude') is not None and
-            destination.get('latitude') is not None and destination.get('longitude') is not None):
+        # Check if user's normalized community matches any normalized ride community
+        if user_community in normalized_ride_communities:
+            # Convert ObjectId to string and add to results
+            ride["_id"] = str(ride["_id"])
             
-            try:
-                print(f"DEBUG: Attempting route calculation for ride {ride_id[:8]}...")
-                print(f"DEBUG: Origin coords: {origin.get('latitude')}, {origin.get('longitude')}")
-                print(f"DEBUG: Dest coords: {destination.get('latitude')}, {destination.get('longitude')}")
-                
-                route_info = await google_routes_service.get_route_info(
-                    float(origin['latitude']),
-                    float(origin['longitude']),
-                    float(destination['latitude']),
-                    float(destination['longitude'])
-                )
-                
-                if route_info:
-                    ride["route_info"] = route_info
-                    print(f"DEBUG: ✅ Added route info: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
-                else:
-                    print(f"DEBUG: ❌ Google Routes API returned no data for ride {ride_id[:8]}")
-            except Exception as e:
-                print(f"DEBUG: ❌ Error getting route info for ride {ride_id[:8]}: {str(e)}")
-        else:
-            print(f"DEBUG: ❌ Missing coordinates for ride {ride_id[:8]}")
-            if isinstance(origin, dict):
-                print(f"DEBUG:   Origin lat/lng: {origin.get('latitude')}, {origin.get('longitude')}")
-            if isinstance(destination, dict):
-                print(f"DEBUG:   Dest lat/lng: {destination.get('latitude')}, {destination.get('longitude')}")
-        
-        rides.append(ride)
-    
-    print(f"DEBUG: Found {len(rides)} rides for user")
-    
-    # Also check all rides without filtering for debugging
-    all_rides = []
-    cursor = rides_collection.find({})  # No filter to see absolutely everything
-    async for ride in cursor:
-        # Handle both string and dict formats for origin/destination
-        origin = ride.get("origin", {})
-        destination = ride.get("destination", {})
-        
-        if isinstance(origin, dict):
-            origin_desc = origin.get("description", "N/A")
-        else:
-            origin_desc = str(origin) if origin else "N/A"
+            # Calculate available spots
+            ride["available_spots"] = ride["max_participants"] - len(ride["user_ids"])
             
-        if isinstance(destination, dict):
-            dest_desc = destination.get("description", "N/A")
+            # Get creator details
+            creator = await users_collection.find_one({"email": ride["creator_email"]})
+            ride["creator_name"] = creator.get("name") if creator else None
+            
+            rides.append(ride)
+            print(f"  ✓ Including ride {ride['_id']}: {ride_communities} -> {normalized_ride_communities}")
         else:
-            dest_desc = str(destination) if destination else "N/A"
-        
-        all_rides.append({
-            "id": str(ride.get("_id", "")),
-            "communities": ride.get("communities", []),
-            "creator": ride.get("creator_email", ""),
-            "status": ride.get("status", ""),
-            "origin": origin_desc,
-            "destination": dest_desc
-        })
+            print(f"  ✗ Excluding ride {ride.get('_id', 'unknown')}: {ride_communities} -> {normalized_ride_communities}")
     
-    print(f"DEBUG: Total rides in database (all statuses): {len(all_rides)}")
-    for i, ride in enumerate(all_rides):
-        print(f"  {i+1}. {ride['origin']} -> {ride['destination']}")
-        print(f"     Communities: {ride['communities']}, Status: {ride['status']}, Creator: {ride['creator']}")
-    
+    print(f"  Total matching rides: {len(rides)}")
     return rides
 
 @router.get("/debug/all-rides")
@@ -336,8 +265,9 @@ async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)
     if ride["status"] != "active":
         raise HTTPException(status_code=400, detail="Ride is no longer active")
     
-    # Check if user is already in the ride
-    if current_user["email"] in ride["user_ids"]:
+    # Check if user is already in the ride (either as participant or creator)
+    if (current_user["email"] in ride["user_ids"] or 
+        current_user["email"] == ride["creator_email"]):
         raise HTTPException(status_code=400, detail="You are already in this ride")
     
     # Check if ride is full
@@ -400,6 +330,10 @@ async def leave_ride(ride_id: str, current_user: dict = Depends(get_current_user
     ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
     if not ride:
         raise HTTPException(status_code=404, detail="Ride not found")
+    
+    # Check if user is the creator
+    if current_user["email"] == ride["creator_email"]:
+        raise HTTPException(status_code=400, detail="You are the creator of this ride. Use delete instead of leave.")
     
     # Check if user is in the ride
     if current_user["email"] not in ride["user_ids"]:
@@ -621,14 +555,11 @@ async def batch_update_route_info(current_user: dict = Depends(get_current_user)
                         {"$set": {"route_info": route_info}}
                     )
                     updated_count += 1
-                    print(f"DEBUG: Updated ride {ride_id[:8]} with route info: {route_info.get('formatted_distance', 'N/A')}, {route_info.get('formatted_duration', 'N/A')}")
                 else:
                     error_count += 1
-                    print(f"DEBUG: Failed to get route info for ride {ride_id[:8]}")
                     
             except Exception as e:
                 error_count += 1
-                print(f"DEBUG: Error updating ride {ride_id[:8]}: {str(e)}")
         
         return {
             "message": f"Batch update completed",
@@ -653,19 +584,11 @@ async def delete_ride_request(ride_id: str, current_user: dict = Depends(get_cur
             raise HTTPException(status_code=404, detail="Ride not found")
         
         # Check if the current user is the creator
-        print(f"🔍 DEBUG delete permission check:")
-        print(f"  Ride creator: {ride['creator_email']}")
-        print(f"  Current user: {current_user['email']}")
-        print(f"  Are they equal? {ride['creator_email'] == current_user['email']}")
-        
         if ride["creator_email"] != current_user["email"]:
-            print(f"❌ Permission denied: User {current_user['email']} trying to delete ride by {ride['creator_email']}")
             raise HTTPException(
                 status_code=403, 
                 detail="Only the ride creator can delete this ride"
             )
-        
-        print(f"✅ Permission granted: User {current_user['email']} can delete their own ride")
         
         # Check if there are other participants (besides creator)
         other_participants = [email for email in ride["user_ids"] if email != current_user["email"]]
