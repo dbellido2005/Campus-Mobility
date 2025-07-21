@@ -100,7 +100,7 @@ Set these in `backend/.env`:
 - `app/(tabs)/`: Tab group with bottom navigation:
   - `index.tsx`: "You" tab (home screen) 
   - `Explore.tsx`: Explore tab
-  - `UberShare.tsx`: Ride sharing with destination/time/community selection
+  - `RideShare.tsx`: Ride sharing with destination/time/community selection
   - `FindDrivers.tsx`: Driver finding
   - `FindRiders.tsx`: Rider finding
 
