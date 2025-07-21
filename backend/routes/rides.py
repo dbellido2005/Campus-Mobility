@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Depends
 from models import RideRequest, RidePost, LocationData
 from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
-from services.uber_pricing import uber_pricing_service
 from services.google_routes import google_routes_service
 from services.university_detection import university_service
 from bson import ObjectId
@@ -12,36 +11,6 @@ import random
 
 router = APIRouter()
 
-async def estimate_price_and_time(origin: LocationData, destination: LocationData):
-    """Uber API only pricing estimation - returns None if unavailable"""
-    
-    # Only try if we have coordinates
-    if origin.latitude and origin.longitude and destination.latitude and destination.longitude:
-        try:
-            # Get price estimate from Uber API only
-            pricing_data = await uber_pricing_service.get_price_estimate(
-                origin.latitude, 
-                origin.longitude,
-                destination.latitude, 
-                destination.longitude
-            )
-            
-            if pricing_data:
-                # Extract time and price from Uber response
-                time_estimate = int(pricing_data.get('duration', 1800) / 60)  # Convert seconds to minutes
-                price_estimate = pricing_data.get('estimate', 0)
-                
-                return time_estimate, price_estimate, pricing_data
-            else:
-                # Uber API unavailable
-                return None, None, None
-                
-        except Exception as e:
-            print(f"Error getting Uber pricing estimate: {str(e)}")
-            return None, None, None
-    
-    # No coordinates available
-    return None, None, None
 
 @router.post("/ride-request")
 async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(get_current_user)):
@@ -401,69 +370,6 @@ async def get_my_rides(current_user: dict = Depends(get_current_user)):
     
     return rides
 
-@router.post("/price-estimate")
-async def get_detailed_price_estimate(
-    estimate_request: dict,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get detailed price estimate for a potential ride
-    Expected request format:
-    {
-        "origin": {"latitude": float, "longitude": float, "description": str},
-        "destination": {"latitude": float, "longitude": float, "description": str},
-        "product_type": "uberX" (optional)
-    }
-    """
-    
-    try:
-        origin = estimate_request.get('origin', {})
-        destination = estimate_request.get('destination', {})
-        product_type = estimate_request.get('product_type', 'uberX')
-        
-        if not all([
-            origin.get('latitude'), 
-            origin.get('longitude'),
-            destination.get('latitude'), 
-            destination.get('longitude')
-        ]):
-            raise HTTPException(
-                status_code=400, 
-                detail="Origin and destination coordinates are required"
-            )
-        
-        # Get pricing estimate from Uber API only
-        pricing_data = await uber_pricing_service.get_price_estimate(
-            origin['latitude'],
-            origin['longitude'], 
-            destination['latitude'],
-            destination['longitude'],
-            product_type
-        )
-        
-        if pricing_data:
-            return {
-                "success": True,
-                "pricing": pricing_data,
-                "origin": origin,
-                "destination": destination
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Price estimate unavailable - Uber API not accessible",
-                "pricing": None,
-                "origin": origin,
-                "destination": destination
-            }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error calculating price estimate: {str(e)}"
-        )
 
 @router.post("/route-info")
 async def get_route_info(

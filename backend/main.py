@@ -30,9 +30,4 @@ app.add_middleware(
 def ping():
     return {"message": "pong"}
 
-   
-#UBER API
-
-#UBER_API_URL = "https://api.uber.com/v1.2/estimates/price"
-#UBER_ACCESS_TOKEN = "YOUR_UBER_ACCESS_TOKEN"  # Replace with your token
 

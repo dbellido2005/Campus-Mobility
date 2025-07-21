@@ -42,7 +42,6 @@ class User(BaseModel):
     stats_last_updated: Optional[datetime] = None
     times_driver_last_month: int = 0
     times_rider_last_month: int = 0
-    times_uber_share_last_month: int = 0
 
 class UserSignUp(BaseModel):
     email: EmailStr
@@ -81,21 +80,6 @@ class UserProfileUpdate(BaseModel):
 class ProfilePictureUpload(BaseModel):
     image_data: str = Field(..., description="Base64 encoded image data")
 
-# Uber Share Statistics Models
-class FrequentRider(BaseModel):
-    user_email: str
-    user_name: Optional[str] = None
-    ride_count: int
-
-class FrequentDestination(BaseModel):
-    destination: str
-    trip_count: int
-
-class UberShareStats(BaseModel):
-    times_uber_share_last_month: int = 0
-    most_frequent_riders: List[FrequentRider] = []
-    most_frequent_destinations: List[FrequentDestination] = []
-    stats_last_updated: Optional[datetime] = None
 
 class UserProfileResponse(BaseModel):
     name: Optional[str] = None
@@ -109,8 +93,6 @@ class UserProfileResponse(BaseModel):
     profile_picture: Optional[str] = None
     created_at: datetime
     
-    # Uber Share Statistics
-    uber_share_stats: UberShareStats
 
 class LocationData(BaseModel):
     description: str
@@ -129,8 +111,7 @@ class RideRequest(BaseModel):
     max_participants: int = 4  # Maximum number of people in the ride
     estimated_price_per_person: Optional[float] = None
     estimated_travel_time: Optional[int] = None  # Travel time in minutes
-    product_id: Optional[str] = None  # Uber product id (optional)
-    ride_type: str = "uber_share"     # Type of ride (uber_share, driver, rider)
+    ride_type: str = "ride_share"     # Type of ride (ride_share, driver, rider)
     status: str = "active"     # active, full, completed, cancelled
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
