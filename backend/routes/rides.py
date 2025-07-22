@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from models import RideRequest, RidePost, LocationData, JoinRideRequest, ApprovalRequest
+from models import RideRequest, RidePost, LocationData, JoinRideRequest, ApprovalRequest, Rating, RideRatingRequest
 from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
 from services.google_routes import google_routes_service
@@ -551,4 +551,139 @@ async def delete_ride_request(ride_id: str, current_user: dict = Depends(get_cur
         raise HTTPException(
             status_code=500,
             detail=f"Error deleting ride: {str(e)}"
+        )
+
+@router.post("/ride-request/{ride_id}/rate")
+async def rate_ride_participants(
+    ride_id: str, 
+    rating_request: RideRatingRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Submit ratings for participants in a completed ride"""
+    
+    try:
+        # Find the ride
+        ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        
+        # Verify the user was part of this ride
+        user_email = current_user["email"]
+        if user_email not in ride.get("user_ids", []):
+            raise HTTPException(status_code=403, detail="You were not part of this ride")
+        
+        # Process each rating
+        for rating in rating_request.ratings:
+            # Validate rating
+            if rating.score < 1 or rating.score > 5:
+                raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+            
+            if rating.rating_type not in ["driver", "passenger"]:
+                raise HTTPException(status_code=400, detail="Rating type must be 'driver' or 'passenger'")
+            
+            # Find the user being rated
+            rated_user = await users_collection.find_one({"email": rating.rated_user_email})
+            if not rated_user:
+                continue  # Skip if user not found
+            
+            # Update the user's rating based on type
+            if rating.rating_type == "driver":
+                current_rating = rated_user.get("driver_rating", 0.0)
+                current_count = rated_user.get("driver_rating_count", 0)
+                
+                # Calculate new average rating
+                new_total = (current_rating * current_count) + rating.score
+                new_count = current_count + 1
+                new_rating = new_total / new_count
+                
+                await users_collection.update_one(
+                    {"email": rating.rated_user_email},
+                    {
+                        "$set": {
+                            "driver_rating": round(new_rating, 2),
+                            "driver_rating_count": new_count
+                        }
+                    }
+                )
+                
+            elif rating.rating_type == "passenger":
+                current_rating = rated_user.get("passenger_rating", 0.0)
+                current_count = rated_user.get("passenger_rating_count", 0)
+                
+                # Calculate new average rating
+                new_total = (current_rating * current_count) + rating.score
+                new_count = current_count + 1
+                new_rating = new_total / new_count
+                
+                await users_collection.update_one(
+                    {"email": rating.rated_user_email},
+                    {
+                        "$set": {
+                            "passenger_rating": round(new_rating, 2),
+                            "passenger_rating_count": new_count
+                        }
+                    }
+                )
+        
+        return {"message": "Ratings submitted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error submitting ratings: {str(e)}"
+        )
+
+@router.get("/ride-request/{ride_id}/participants")
+async def get_ride_participants(
+    ride_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get participants of a ride for rating purposes"""
+    
+    try:
+        # Find the ride
+        ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        
+        # Verify the user was part of this ride
+        user_email = current_user["email"]
+        if user_email not in ride.get("user_ids", []):
+            raise HTTPException(status_code=403, detail="You were not part of this ride")
+        
+        # Get participant details
+        participants = []
+        driver_email = None
+        
+        # Determine who was the driver
+        if ride.get("is_driver_ride", False):
+            driver_email = ride.get("creator_email")
+        
+        for participant_email in ride.get("user_ids", []):
+            if participant_email == user_email:
+                continue  # Skip self
+                
+            user = await users_collection.find_one({"email": participant_email})
+            if user:
+                role = "driver" if participant_email == driver_email else "passenger"
+                participants.append({
+                    "email": participant_email,
+                    "name": user.get("name", "Unknown"),
+                    "role": role  # What type of rating they should receive
+                })
+        
+        return {
+            "ride_id": ride_id,
+            "participants": participants,
+            "was_driver": user_email == driver_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting ride participants: {str(e)}"
         )

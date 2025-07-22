@@ -42,6 +42,12 @@ class User(BaseModel):
     stats_last_updated: Optional[datetime] = None
     times_driver_last_month: int = 0
     times_rider_last_month: int = 0
+    
+    # Rating system
+    driver_rating: float = 0.0        # Average driver rating (0-5 stars)
+    driver_rating_count: int = 0      # Number of driver ratings received
+    passenger_rating: float = 0.0     # Average passenger rating (0-5 stars)  
+    passenger_rating_count: int = 0   # Number of passenger ratings received
 
 class UserSignUp(BaseModel):
     email: EmailStr
@@ -93,6 +99,12 @@ class UserProfileResponse(BaseModel):
     profile_picture: Optional[str] = None
     created_at: datetime
     
+    # Rating information
+    driver_rating: float = 0.0
+    driver_rating_count: int = 0
+    passenger_rating: float = 0.0
+    passenger_rating_count: int = 0
+    
 
 class LocationData(BaseModel):
     description: str
@@ -143,6 +155,19 @@ class ApprovalRequest(BaseModel):
     ride_id: str
     participant_email: str
     action: str  # "approve" or "decline"
+
+class Rating(BaseModel):
+    ride_id: str
+    rated_user_email: str      # User being rated
+    rating_user_email: str     # User giving the rating
+    rating_type: str           # "driver" or "passenger" 
+    score: int                 # 1-5 stars
+    comment: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RideRatingRequest(BaseModel):
+    ride_id: str
+    ratings: List[Rating]      # List of ratings for all participants
 
 # Places API Models
 class PlaceAutocompleteRequest(BaseModel):

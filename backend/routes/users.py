@@ -246,7 +246,11 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
         major=user.get('major'),
         bio=user.get('bio'),
         profile_picture=user.get('profile_picture'),
-        created_at=user['created_at']
+        created_at=user['created_at'],
+        driver_rating=user.get('driver_rating', 0.0),
+        driver_rating_count=user.get('driver_rating_count', 0),
+        passenger_rating=user.get('passenger_rating', 0.0),
+        passenger_rating_count=user.get('passenger_rating_count', 0)
     )
 
 @router.put("/profile", response_model=UserProfileResponse)
@@ -304,7 +308,11 @@ async def update_user_profile(
         major=updated_user.get('major'),
         bio=updated_user.get('bio'),
         profile_picture=updated_user.get('profile_picture'),
-        created_at=updated_user['created_at']
+        created_at=updated_user['created_at'],
+        driver_rating=updated_user.get('driver_rating', 0.0),
+        driver_rating_count=updated_user.get('driver_rating_count', 0),
+        passenger_rating=updated_user.get('passenger_rating', 0.0),
+        passenger_rating_count=updated_user.get('passenger_rating_count', 0)
     )
 
 @router.post("/profile/picture", response_model=UserProfileResponse)
@@ -378,7 +386,11 @@ async def upload_profile_picture(
             major=updated_user.get('major'),
             bio=updated_user.get('bio'),
             profile_picture=updated_user.get('profile_picture'),
-            created_at=updated_user['created_at']
+            created_at=updated_user['created_at'],
+            driver_rating=updated_user.get('driver_rating', 0.0),
+            driver_rating_count=updated_user.get('driver_rating_count', 0),
+            passenger_rating=updated_user.get('passenger_rating', 0.0),
+            passenger_rating_count=updated_user.get('passenger_rating_count', 0)
         )
         
     except HTTPException:
