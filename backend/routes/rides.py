@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from models import RideRequest, RidePost, LocationData
+from models import RideRequest, RidePost, LocationData, JoinRideRequest, ApprovalRequest
 from database import rides_collection, users_collection
 from utils.auth_utils import get_current_user
 from services.google_routes import google_routes_service
@@ -22,8 +22,8 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid departure_date format")
     
-    # Get estimated travel time and price from Uber API only
-    estimated_time, estimated_price, pricing_data = await estimate_price_and_time(ride_post.origin, ride_post.destination)
+    # Removed Uber API pricing - no longer needed
+    estimated_time, estimated_price, pricing_data = None, None, None
     
     # Get route information from Google Routes API
     route_info = None
@@ -49,6 +49,13 @@ async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(
         "latest_time": ride_post.latest_time,
         "communities": ride_post.communities,
         "creator_email": current_user["email"],
+        "creator_has_car": ride_post.creator_has_car,
+        "is_driver_ride": ride_post.is_driver_ride,
+        "participants": [{
+            "email": current_user["email"],
+            "has_car": ride_post.creator_has_car,
+            "status": "joined"
+        }],
         "user_ids": [current_user["email"]],  # Creator automatically joins
         "max_participants": ride_post.max_participants,
         "status": "active",
@@ -222,7 +229,7 @@ async def debug_rides_for_community(community: str):
     }
 
 @router.post("/ride-request/{ride_id}/join")
-async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)):
+async def join_ride(ride_id: str, join_request: JoinRideRequest = None, current_user: dict = Depends(get_current_user)):
     """Join an existing ride"""
     
     # Find the ride
@@ -261,11 +268,29 @@ async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)
     if user_community not in ride["communities"]:
         raise HTTPException(status_code=403, detail="This ride is not available to your college")
     
-    # Add user to the ride
-    new_user_ids = ride["user_ids"] + [current_user["email"]]
+    # Get car availability from request (default to False if not provided)
+    has_car = False
+    if join_request and hasattr(join_request, 'has_car'):
+        has_car = join_request.has_car
     
-    # Check if ride becomes full
-    new_status = "full" if len(new_user_ids) >= ride["max_participants"] else "active"
+    # Determine participant status based on ride type
+    is_driver_ride = ride.get("is_driver_ride", False)
+    participant_status = "pending" if is_driver_ride else "joined"
+    
+    # Create new participant
+    new_participant = {
+        "email": current_user["email"],
+        "has_car": has_car,
+        "status": participant_status
+    }
+    
+    # Add user to the ride
+    new_user_ids = ride["user_ids"] + [current_user["email"]] if participant_status == "joined" else ride["user_ids"]
+    new_participants = ride.get("participants", []) + [new_participant]
+    
+    # Check if ride becomes full (only count approved participants for driver rides)
+    active_participants = len([p for p in new_participants if p["status"] == "joined"])
+    new_status = "full" if active_participants >= ride["max_participants"] else "active"
     
     # Update the ride
     result = await rides_collection.update_one(
@@ -273,6 +298,7 @@ async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)
         {
             "$set": {
                 "user_ids": new_user_ids,
+                "participants": new_participants,
                 "status": new_status
             }
         }
@@ -286,9 +312,13 @@ async def join_ride(ride_id: str, current_user: dict = Depends(get_current_user)
     updated_ride["_id"] = str(updated_ride["_id"])
     updated_ride["available_spots"] = updated_ride["max_participants"] - len(updated_ride["user_ids"])
     
+    # Customize message based on status
+    message = "Successfully joined the ride" if participant_status == "joined" else "Request submitted! Waiting for driver approval"
+    
     return {
-        "message": "Successfully joined the ride",
-        "ride": updated_ride
+        "message": message,
+        "ride": updated_ride,
+        "status": participant_status
     }
 
 @router.post("/ride-request/{ride_id}/leave")

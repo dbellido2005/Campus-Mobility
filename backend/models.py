@@ -99,6 +99,11 @@ class LocationData(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
+class RideParticipant(BaseModel):
+    email: str
+    has_car: bool = False
+    status: str = "joined"  # joined, pending, approved, declined
+
 class RideRequest(BaseModel):
     origin: LocationData
     destination: LocationData
@@ -107,7 +112,10 @@ class RideRequest(BaseModel):
     latest_time: int           # Time in minutes from midnight (e.g., 600 = 10:00 AM)
     communities: List[str]     # Communities this ride is available to
     creator_email: str         # Email of the person who created the ride
-    user_ids: List[str] = []   # Users who have joined the ride
+    creator_has_car: bool = False  # Whether the creator has a car
+    is_driver_ride: bool = False   # Whether this is a driver-led ride (creator driving)
+    participants: List[RideParticipant] = []  # Participants with car status and approval status
+    user_ids: List[str] = []   # Users who have joined the ride (for backward compatibility)
     max_participants: int = 4  # Maximum number of people in the ride
     estimated_price_per_person: Optional[float] = None
     estimated_travel_time: Optional[int] = None  # Travel time in minutes
@@ -124,6 +132,17 @@ class RidePost(BaseModel):
     latest_time: int
     communities: List[str]
     max_participants: int = 4
+    creator_has_car: bool = False
+    is_driver_ride: bool = False
+
+class JoinRideRequest(BaseModel):
+    ride_id: str
+    has_car: bool = False
+
+class ApprovalRequest(BaseModel):
+    ride_id: str
+    participant_email: str
+    action: str  # "approve" or "decline"
 
 # Places API Models
 class PlaceAutocompleteRequest(BaseModel):
