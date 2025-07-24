@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
-from models import RideRequest, RidePost, LocationData, JoinRideRequest, ApprovalRequest, Rating, RideRatingRequest
-from database import rides_collection, users_collection
+from models import RideRequest, RidePost, LocationData, JoinRideRequest, JoinRideBody, ApprovalRequest, Rating, RideRatingRequest, UserReport, ReportRequest
+from database import rides_collection, users_collection, reports_collection
 from utils.auth_utils import get_current_user
 from services.google_routes import google_routes_service
 from services.university_detection import university_service
@@ -11,6 +11,30 @@ import random
 
 router = APIRouter()
 
+def calculate_available_seats(ride: dict) -> int:
+    """Calculate available seats based on number of cars available"""
+    SEATS_PER_CAR = 5
+    
+    # Count cars from participants
+    participants_with_cars = 0
+    participants = ride.get("participants", [])
+    for participant in participants:
+        if participant.get("has_car", False) and participant.get("status") == "joined":
+            participants_with_cars += 1
+    
+    # Count creator's car
+    creator_has_car = ride.get("creator_has_car", False)
+    total_cars = participants_with_cars + (1 if creator_has_car else 0)
+    
+    # If no cars, default to original max_participants (for rides without cars)
+    if total_cars == 0:
+        return ride.get("max_participants", 5) - len(ride.get("user_ids", []))
+    
+    # Calculate total seats and subtract current participants
+    total_seats = total_cars * SEATS_PER_CAR
+    current_participants = len(ride.get("user_ids", []))
+    
+    return max(0, total_seats - current_participants)
 
 @router.post("/ride-request")
 async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(get_current_user)):
@@ -166,8 +190,8 @@ async def list_ride_requests(current_user: dict = Depends(get_current_user)):
             # Convert ObjectId to string and add to results
             ride["_id"] = str(ride["_id"])
             
-            # Calculate available spots
-            ride["available_spots"] = ride["max_participants"] - len(ride["user_ids"])
+            # Calculate available spots based on cars
+            ride["available_spots"] = calculate_available_seats(ride)
             
             # Get creator details
             creator = await users_collection.find_one({"email": ride["creator_email"]})
@@ -229,7 +253,7 @@ async def debug_rides_for_community(community: str):
     }
 
 @router.post("/ride-request/{ride_id}/join")
-async def join_ride(ride_id: str, join_request: JoinRideRequest = None, current_user: dict = Depends(get_current_user)):
+async def join_ride(ride_id: str, join_request: JoinRideBody, current_user: dict = Depends(get_current_user)):
     """Join an existing ride"""
     
     # Find the ride
@@ -268,10 +292,8 @@ async def join_ride(ride_id: str, join_request: JoinRideRequest = None, current_
     if user_community not in ride["communities"]:
         raise HTTPException(status_code=403, detail="This ride is not available to your college")
     
-    # Get car availability from request (default to False if not provided)
-    has_car = False
-    if join_request and hasattr(join_request, 'has_car'):
-        has_car = join_request.has_car
+    # Get car availability from request
+    has_car = join_request.has_car if join_request else False
     
     # Determine participant status based on ride type
     is_driver_ride = ride.get("is_driver_ride", False)
@@ -310,7 +332,7 @@ async def join_ride(ride_id: str, join_request: JoinRideRequest = None, current_
     # Return updated ride
     updated_ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
     updated_ride["_id"] = str(updated_ride["_id"])
-    updated_ride["available_spots"] = updated_ride["max_participants"] - len(updated_ride["user_ids"])
+    updated_ride["available_spots"] = calculate_available_seats(updated_ride)
     
     # Customize message based on status
     message = "Successfully joined the ride" if participant_status == "joined" else "Request submitted! Waiting for driver approval"
@@ -366,7 +388,7 @@ async def leave_ride(ride_id: str, current_user: dict = Depends(get_current_user
     # Return updated ride
     updated_ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
     updated_ride["_id"] = str(updated_ride["_id"])
-    updated_ride["available_spots"] = updated_ride["max_participants"] - len(updated_ride["user_ids"])
+    updated_ride["available_spots"] = calculate_available_seats(updated_ride)
     
     return {
         "message": "Successfully left the ride",
@@ -393,8 +415,8 @@ async def get_my_rides(current_user: dict = Depends(get_current_user)):
         creator = await users_collection.find_one({"email": ride["creator_email"]})
         ride["creator_name"] = creator.get("name") if creator else None
         
-        # Calculate available spots
-        ride["available_spots"] = ride["max_participants"] - len(ride["user_ids"])
+        # Calculate available spots based on cars
+        ride["available_spots"] = calculate_available_seats(ride)
         
         rides.append(ride)
     
@@ -643,35 +665,76 @@ async def get_ride_participants(
     """Get participants of a ride for rating purposes"""
     
     try:
+        # Validate ride_id format
+        try:
+            object_id = ObjectId(ride_id)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid ride ID format")
+        
         # Find the ride
-        ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
+        ride = await rides_collection.find_one({"_id": object_id})
         if not ride:
             raise HTTPException(status_code=404, detail="Ride not found")
         
         # Verify the user was part of this ride
         user_email = current_user["email"]
-        if user_email not in ride.get("user_ids", []):
+        user_ids = ride.get("user_ids", [])
+        if user_email not in user_ids:
             raise HTTPException(status_code=403, detail="You were not part of this ride")
         
         # Get participant details
         participants = []
         driver_email = None
         
-        # Determine who was the driver
-        if ride.get("is_driver_ride", False):
+        # Determine who was the driver - check participants list first, then fallback to creator
+        participants_data = ride.get("participants", [])
+        
+        # First try to find driver from participants list
+        for participant in participants_data:
+            if participant.get("has_car", False) and participant.get("status") == "joined":
+                driver_email = participant.get("email")
+                break
+        
+        # Fallback: if no driver found in participants and it's a driver ride, use creator
+        if not driver_email and ride.get("is_driver_ride", False):
             driver_email = ride.get("creator_email")
         
-        for participant_email in ride.get("user_ids", []):
+        # Process each participant
+        for participant_email in user_ids:
             if participant_email == user_email:
                 continue  # Skip self
                 
-            user = await users_collection.find_one({"email": participant_email})
-            if user:
-                role = "driver" if participant_email == driver_email else "passenger"
+            try:
+                user = await users_collection.find_one({"email": participant_email})
+                if user:
+                    # Determine role
+                    role = "driver" if participant_email == driver_email else "passenger"
+                    
+                    # Get name with fallback options
+                    name = (user.get("name") or 
+                           f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or
+                           user.get("email", "").split("@")[0] or
+                           "Unknown User")
+                    
+                    participants.append({
+                        "email": participant_email,
+                        "name": name,
+                        "role": role
+                    })
+                else:
+                    # Handle case where user account was deleted
+                    participants.append({
+                        "email": participant_email,
+                        "name": participant_email.split("@")[0],  # Use email prefix as fallback
+                        "role": "driver" if participant_email == driver_email else "passenger"
+                    })
+            except Exception as user_error:
+                # Log error but continue with other participants
+                print(f"Error processing participant {participant_email}: {user_error}")
                 participants.append({
                     "email": participant_email,
-                    "name": user.get("name", "Unknown"),
-                    "role": role  # What type of rating they should receive
+                    "name": participant_email.split("@")[0],
+                    "role": "passenger"  # Default to passenger if we can't determine
                 })
         
         return {
@@ -683,7 +746,155 @@ async def get_ride_participants(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Unexpected error in get_ride_participants: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error getting ride participants: {str(e)}"
+            detail="Unable to load ride participants. This ride may be too old or corrupted."
+        )
+
+@router.post("/ride-request/{ride_id}/report")
+async def report_user(
+    ride_id: str,
+    report_request: ReportRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Report a user for payment issues or other problems"""
+    
+    try:
+        # Validate ride_id format
+        try:
+            object_id = ObjectId(ride_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid ride ID format")
+        
+        # Find the ride
+        ride = await rides_collection.find_one({"_id": object_id})
+        if not ride:
+            raise HTTPException(status_code=404, detail="Ride not found")
+        
+        # Verify the user was part of this ride
+        reporter_email = current_user["email"]
+        if reporter_email not in ride.get("user_ids", []):
+            raise HTTPException(status_code=403, detail="You were not part of this ride")
+        
+        # Verify the reported user was also part of this ride
+        if report_request.reported_user_email not in ride.get("user_ids", []):
+            raise HTTPException(status_code=400, detail="The reported user was not part of this ride")
+        
+        # Check if user is trying to report themselves
+        if reporter_email == report_request.reported_user_email:
+            raise HTTPException(status_code=400, detail="You cannot report yourself")
+        
+        # Check if a report already exists for this combination
+        existing_report = await reports_collection.find_one({
+            "ride_id": ride_id,
+            "reporter_email": reporter_email,
+            "reported_user_email": report_request.reported_user_email
+        })
+        
+        if existing_report:
+            raise HTTPException(status_code=400, detail="You have already reported this user for this ride")
+        
+        # Handle receipt upload if provided
+        receipt_url = None
+        receipt_metadata = {}
+        if report_request.receipt_base64:
+            # In a real app, you would upload to cloud storage (AWS S3, Google Cloud, etc.)
+            # For now, we'll store metadata and a placeholder URL
+            file_extension = "jpg"  # default
+            if report_request.receipt_type:
+                if "pdf" in report_request.receipt_type.lower():
+                    file_extension = "pdf"
+                elif "png" in report_request.receipt_type.lower():
+                    file_extension = "png"
+            
+            receipt_url = f"receipt_{ObjectId()}.{file_extension}"
+            receipt_metadata = {
+                "filename": report_request.receipt_filename,
+                "type": report_request.receipt_type,
+                "uploaded_at": datetime.utcnow().isoformat()
+            }
+        
+        # Create the report
+        report_data = {
+            "report_id": str(ObjectId()),
+            "ride_id": ride_id,
+            "reporter_email": reporter_email,
+            "reported_user_email": report_request.reported_user_email,
+            "report_type": "payment_issue",
+            "amount_owed": report_request.amount_owed,
+            "description": report_request.description,
+            "receipt_url": receipt_url,
+            "receipt_metadata": receipt_metadata,
+            "status": "open",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "admin_notes": None
+        }
+        
+        # Insert the report
+        result = await reports_collection.insert_one(report_data)
+        
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to create report")
+        
+        return {
+            "message": "Report submitted successfully",
+            "report_id": str(result.inserted_id),
+            "status": "open"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error in report_user: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to submit report. Please try again later."
+        )
+
+@router.get("/my-reports")
+async def get_my_reports(current_user: dict = Depends(get_current_user)):
+    """Get reports filed by the current user"""
+    
+    try:
+        user_email = current_user["email"]
+        
+        # Find reports made by this user
+        cursor = reports_collection.find({"reporter_email": user_email}).sort("created_at", -1)
+        reports = []
+        
+        async for report in cursor:
+            report["_id"] = str(report["_id"])
+            
+            # Get reported user info
+            reported_user = await users_collection.find_one({"email": report.get("reported_user_email")})
+            report["reported_user_name"] = (
+                reported_user.get("name") or 
+                reported_user.get("email", "").split("@")[0] or
+                "Unknown User"
+            ) if reported_user else "Unknown User"
+            
+            # Get ride info
+            try:
+                ride = await rides_collection.find_one({"_id": ObjectId(report.get("ride_id"))})
+                if ride:
+                    report["ride_destination"] = ride.get("destination", {}).get("description", "Unknown destination")
+                    report["ride_date"] = ride.get("departure_date").isoformat() if ride.get("departure_date") else None
+                else:
+                    report["ride_destination"] = "Ride not found"
+                    report["ride_date"] = None
+            except Exception:
+                report["ride_destination"] = "Unknown ride"
+                report["ride_date"] = None
+            
+            reports.append(report)
+        
+        return {"reports": reports}
+        
+    except Exception as e:
+        print(f"Error getting user reports: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to load reports"
         )

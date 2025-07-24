@@ -5,6 +5,14 @@ from typing import Dict, Optional
 import os
 import logging
 
+# Import Gmail service
+try:
+    from services.gmail_service import gmail_service
+    GMAIL_AVAILABLE = True
+except ImportError:
+    GMAIL_AVAILABLE = False
+    print("WARNING: Gmail API not available")
+
 # Optional sendgrid imports - fallback to console if not available
 try:
     from sendgrid import SendGridAPIClient
@@ -254,22 +262,44 @@ def create_verification_email_html(code: str, college: str) -> str:
     return html
 
 def send_verification_email(email: str, code: str, college: str) -> bool:
-    """Send verification email to user with HTML formatting using SendGrid API"""
+    """Send verification email using Gmail API (preferred) or SendGrid API (fallback)"""
+    
+    # Try Gmail API first
+    if GMAIL_AVAILABLE and gmail_service.service:
+        logging.info("Attempting to send verification email via Gmail API")
+        success = gmail_service.send_verification_email(email, code, college)
+        if success:
+            logging.info(f"Verification email sent successfully to {email} via Gmail API")
+            return True
+        else:
+            logging.warning("Gmail API failed, falling back to SendGrid")
+    
+    # Fall back to SendGrid
+    if SENDGRID_AVAILABLE:
+        logging.info("Attempting to send verification email via SendGrid")
+        return _send_verification_email_sendgrid(email, code, college)
+    
+    # Final fallback: Console output
+    logging.warning("No email service available, falling back to console output")
+    print(f"=== EMAIL VERIFICATION (CONSOLE FALLBACK) ===")
+    print(f"To: {email}")
+    print(f"College: {college}")
+    print(f"Verification Code: {code}")
+    print(f"============================================")
+    return True
+
+def _send_verification_email_sendgrid(email: str, code: str, college: str) -> bool:
+    """Send verification email using SendGrid API"""
     
     # Get SendGrid configuration from environment variables
     sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
     from_email = os.getenv('SENDGRID_FROM_EMAIL')
     from_name = os.getenv('SENDGRID_FROM_NAME', 'Campus Mobility')
     
-    # Fallback: Print to console if SendGrid not available or credentials not configured
-    if not SENDGRID_AVAILABLE or not sendgrid_api_key or not from_email:
-        logging.warning("SendGrid credentials not configured, falling back to console output")
-        print(f"=== EMAIL VERIFICATION (CONSOLE FALLBACK) ===")
-        print(f"To: {email}")
-        print(f"College: {college}")
-        print(f"Verification Code: {code}")
-        print(f"============================================")
-        return True
+    # Check if credentials are configured
+    if not sendgrid_api_key or not from_email:
+        logging.warning("SendGrid credentials not configured")
+        return False
     
     try:
         # Create plain text version as fallback
@@ -311,43 +341,12 @@ def send_verification_email(email: str, code: str, college: str) -> bool:
             logging.info(f"Verification email sent successfully to {email} via SendGrid")
             return True
         else:
-            logging.warning(f"SendGrid returned status code {response.status_code}, falling back to console")
-            print(f"=== EMAIL VERIFICATION (SENDGRID ERROR FALLBACK) ===")
-            print(f"To: {email}")
-            print(f"College: {college}")
-            print(f"Verification Code: {code}")
-            print(f"SendGrid Status: {response.status_code}")
-            print(f"====================================================")
-            return True
+            logging.warning(f"SendGrid returned status code {response.status_code}")
+            return False
         
     except Exception as e:
         logging.error(f"SendGrid API error: {e}")
-        
-        # Handle specific SendGrid errors with appropriate fallbacks
-        error_str = str(e).lower()
-        
-        if "unauthorized" in error_str or "forbidden" in error_str:
-            print(f"SendGrid Authentication Error - falling back to console output")
-            print(f"=== EMAIL VERIFICATION (AUTH FALLBACK) ===")
-            print(f"To: {email}")
-            print(f"College: {college}")
-            print(f"Verification Code: {code}")
-            print(f"Error: Invalid SendGrid API key")
-            print(f"=========================================")
-        elif "bad request" in error_str or "invalid" in error_str:
-            logging.error(f"SendGrid request error - invalid email or configuration")
-            print(f"Invalid email configuration or recipient: {email}")
-            return False
-        else:
-            print(f"SendGrid API error - falling back to console output")
-            print(f"=== EMAIL VERIFICATION (ERROR FALLBACK) ===")
-            print(f"To: {email}")
-            print(f"College: {college}")
-            print(f"Verification Code: {code}")
-            print(f"Error: {str(e)}")
-            print(f"=========================================")
-        
-    return True
+        return False
 
 def generate_reset_code() -> str:
     """Generate a 6-digit password reset code"""
@@ -516,66 +515,67 @@ def create_password_reset_email_html(code: str, college: str) -> str:
     return html
 
 def send_password_reset_email(email: str, reset_code: str, college: str) -> bool:
-    """
-    Send password reset email with code
+    """Send password reset email using Gmail API (preferred) or SendGrid API (fallback)"""
     
-    Args:
-        email: User's email address
-        reset_code: 6-digit reset code
-        college: User's college name
-        
-    Returns:
-        bool: True if email was sent successfully (or printed to console)
-    """
-    
-    # Create HTML email content
-    html_body = create_password_reset_email_html(reset_code, college)
-    
-    # Create plain text version
-    text_body = f"""
-    🔐 Campus Mobility - Password Reset Request
-    
-    We received a request to reset the password for your Campus Mobility account.
-    
-    College: {college}
-    
-    Reset Code: {reset_code}
-    
-    Instructions:
-    Enter this code in the Campus Mobility app to create a new password.
-    
-    ⏰ This code will expire in 1 hour.
-    
-    ⚠️ Security Notice:
-    If you didn't request this password reset, please ignore this email. Your account remains secure.
-    
-    Campus Mobility Team
-    """
-    
-    if not SENDGRID_AVAILABLE:
-        # Fallback to console output
-        print(f"=== PASSWORD RESET EMAIL (SENDGRID NOT AVAILABLE) ===")
-        print(f"To: {email}")
-        print(f"College: {college}")
-        print(f"Reset Code: {reset_code}")
-        print(f"====================================================")
-        return True
-    
-    # Try to send using SendGrid
-    try:
-        sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
-        
-        if not sendgrid_api_key:
-            print(f"=== PASSWORD RESET EMAIL (NO API KEY) ===")
-            print(f"To: {email}")
-            print(f"College: {college}")
-            print(f"Reset Code: {reset_code}")
-            print(f"===========================================")
+    # Try Gmail API first
+    if GMAIL_AVAILABLE and gmail_service.service:
+        logging.info("Attempting to send password reset email via Gmail API")
+        success = gmail_service.send_password_reset_email(email, reset_code, college)
+        if success:
+            logging.info(f"Password reset email sent successfully to {email} via Gmail API")
             return True
+        else:
+            logging.warning("Gmail API failed, falling back to SendGrid")
+    
+    # Fall back to SendGrid
+    if SENDGRID_AVAILABLE:
+        logging.info("Attempting to send password reset email via SendGrid")
+        return _send_password_reset_email_sendgrid(email, reset_code, college)
+    
+    # Final fallback: Console output
+    logging.warning("No email service available, falling back to console output")
+    print(f"=== PASSWORD RESET EMAIL (CONSOLE FALLBACK) ===")
+    print(f"To: {email}")
+    print(f"College: {college}")
+    print(f"Reset Code: {reset_code}")
+    print(f"===============================================")
+    return True
+
+def _send_password_reset_email_sendgrid(email: str, reset_code: str, college: str) -> bool:
+    """Send password reset email using SendGrid API"""
+    
+    # Get SendGrid configuration
+    sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
+    from_email = os.getenv('SENDGRID_FROM_EMAIL')
+    from_name = os.getenv('SENDGRID_FROM_NAME', 'Campus Mobility')
+    
+    if not sendgrid_api_key or not from_email:
+        logging.warning("SendGrid credentials not configured")
+        return False
+    
+    try:
+        # Create HTML email content
+        html_body = create_password_reset_email_html(reset_code, college)
+        
+        # Create plain text version
+        text_body = f"""
+        Campus Mobility - Password Reset Request
+        
+        We received a request to reset the password for your Campus Mobility account.
+        
+        College: {college}
+        Reset Code: {reset_code}
+        
+        This code will expire in 1 hour.
+        
+        If you didn't request this password reset, please ignore this email.
+        
+        Campus Mobility Team
+        """
         
         # Create SendGrid email message
         message = Mail(
-            from_email=From("noreply@campusmobility.app", "Campus Mobility"),
+            from_email=From(from_email, from_name),
             to_emails=To(email),
             subject=Subject("🔐 Campus Mobility - Password Reset Request"),
             plain_text_content=Content("text/plain", text_body.strip()),
@@ -591,24 +591,9 @@ def send_password_reset_email(email: str, reset_code: str, college: str) -> bool
             logging.info(f"Password reset email sent successfully to {email} via SendGrid")
             return True
         else:
-            logging.warning(f"SendGrid returned status code {response.status_code}, falling back to console")
-            print(f"=== PASSWORD RESET EMAIL (SENDGRID ERROR FALLBACK) ===")
-            print(f"To: {email}")
-            print(f"College: {college}")
-            print(f"Reset Code: {reset_code}")
-            print(f"SendGrid Status: {response.status_code}")
-            print(f"====================================================")
-            return True
+            logging.warning(f"SendGrid returned status code {response.status_code}")
+            return False
         
     except Exception as e:
         logging.error(f"SendGrid API error: {e}")
-        
-        # Fallback to console output
-        print(f"=== PASSWORD RESET EMAIL (ERROR FALLBACK) ===")
-        print(f"To: {email}")
-        print(f"College: {college}")
-        print(f"Reset Code: {reset_code}")
-        print(f"Error: {str(e)}")
-        print(f"==========================================")
-        return True
-        return True  # Still return True so signup process continues
+        return False

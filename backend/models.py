@@ -151,6 +151,9 @@ class JoinRideRequest(BaseModel):
     ride_id: str
     has_car: bool = False
 
+class JoinRideBody(BaseModel):
+    has_car: bool = False
+
 class ApprovalRequest(BaseModel):
     ride_id: str
     participant_email: str
@@ -168,6 +171,31 @@ class Rating(BaseModel):
 class RideRatingRequest(BaseModel):
     ride_id: str
     ratings: List[Rating]      # List of ratings for all participants
+
+# Report Models
+class UserReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: str(ObjectId()))
+    ride_id: str
+    reporter_email: str         # User making the report
+    reported_user_email: str    # User being reported
+    report_type: str = "payment_issue"  # For now, only payment issues
+    amount_owed: float         # Amount that was not paid back
+    description: str           # Description of the issue
+    receipt_url: Optional[str] = None  # URL to uploaded receipt
+    receipt_metadata: Optional[dict] = None  # Metadata about uploaded receipt
+    status: str = "open"       # "open", "in_review", "resolved", "closed"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    admin_notes: Optional[str] = None
+
+class ReportRequest(BaseModel):
+    ride_id: str
+    reported_user_email: str
+    amount_owed: float = Field(..., ge=0, description="Amount owed must be positive")
+    description: str = Field(..., min_length=10, description="Please provide details about the issue")
+    receipt_base64: Optional[str] = None  # Base64 encoded receipt image/PDF
+    receipt_filename: Optional[str] = None  # Original filename
+    receipt_type: Optional[str] = None  # MIME type (image/jpeg, application/pdf, etc.)
 
 # Places API Models
 class PlaceAutocompleteRequest(BaseModel):

@@ -32,7 +32,7 @@ def verify_token(token: str) -> Optional[Dict]:
         return payload
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.JWTError:
+    except (jwt.PyJWTError, jwt.DecodeError):
         return None
 
 # Security scheme for dependency injection
