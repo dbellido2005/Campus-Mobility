@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List
 from bson import ObjectId
 from services.university_detection import university_service
-from routes.rides import calculate_available_seats
+from routes.rides import calculate_available_seats, calculate_ride_capacity_info
 
 router = APIRouter()
 
@@ -672,7 +672,8 @@ async def debug_user_ride_status(ride_id: str, current_user: dict = Depends(get_
             "is_in_user_ids": is_in_user_ids,
             "is_member": is_member,
             "available_spots": calculate_available_seats(ride),
-            "max_participants": ride.get("max_participants", 0)
+            "max_participants": ride.get("max_participants", 0),
+            **calculate_ride_capacity_info(ride)
         }
         
     except Exception as e:

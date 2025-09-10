@@ -55,7 +55,7 @@ def test_chapman_detection():
 
 if __name__ == "__main__":
     # Set the environment variable
-    os.environ['GROQ_API_KEY'] = "***REMOVED***"
+    os.environ['GROQ_API_KEY'] = "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"
     
     print("🎓 Testing Chapman University Detection")
     print("=" * 60)

@@ -7,7 +7,7 @@ import aiohttp
 import json
 
 # Set API key for testing
-os.environ['GOOGLE_ROUTES_API_KEY'] = '***REMOVED***'
+os.environ['GOOGLE_ROUTES_API_KEY'] = 'AIzaSyAH5IR4dI-R3OXDobedXmyKJ4jz5mCYm64'
 
 async def test_route_info_endpoint():
     """Test the route-info endpoint directly"""

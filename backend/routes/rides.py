@@ -36,6 +36,47 @@ def calculate_available_seats(ride: dict) -> int:
     
     return max(0, total_seats - current_participants)
 
+def calculate_ride_capacity_info(ride: dict) -> dict:
+    """Calculate comprehensive ride capacity information"""
+    SEATS_PER_CAR = 5
+    
+    # Count cars from participants
+    participants_with_cars = 0
+    participants = ride.get("participants", [])
+    for participant in participants:
+        if participant.get("has_car", False) and participant.get("status") == "joined":
+            participants_with_cars += 1
+    
+    # Count creator's car
+    creator_has_car = ride.get("creator_has_car", False)
+    total_cars = participants_with_cars + (1 if creator_has_car else 0)
+    
+    current_participants = len(ride.get("user_ids", []))
+    
+    # If no cars, use original system
+    if total_cars == 0:
+        max_capacity = ride.get("max_participants", 5)
+        available = max_capacity - current_participants
+        return {
+            "available_spots": max(0, available),
+            "total_capacity": max_capacity,
+            "current_participants": current_participants,
+            "total_cars": 0,
+            "car_based_capacity": False
+        }
+    
+    # Car-based capacity
+    total_capacity = total_cars * SEATS_PER_CAR
+    available = total_capacity - current_participants
+    
+    return {
+        "available_spots": max(0, available),
+        "total_capacity": total_capacity,
+        "current_participants": current_participants,
+        "total_cars": total_cars,
+        "car_based_capacity": True
+    }
+
 @router.post("/ride-request")
 async def create_ride_request(ride_post: RidePost, current_user: dict = Depends(get_current_user)):
     """Create a new ride request"""
@@ -190,8 +231,9 @@ async def list_ride_requests(current_user: dict = Depends(get_current_user)):
             # Convert ObjectId to string and add to results
             ride["_id"] = str(ride["_id"])
             
-            # Calculate available spots based on cars
-            ride["available_spots"] = calculate_available_seats(ride)
+            # Calculate available spots and capacity info based on cars
+            capacity_info = calculate_ride_capacity_info(ride)
+            ride.update(capacity_info)
             
             # Get creator details
             creator = await users_collection.find_one({"email": ride["creator_email"]})
@@ -332,7 +374,8 @@ async def join_ride(ride_id: str, join_request: JoinRideBody, current_user: dict
     # Return updated ride
     updated_ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
     updated_ride["_id"] = str(updated_ride["_id"])
-    updated_ride["available_spots"] = calculate_available_seats(updated_ride)
+    capacity_info = calculate_ride_capacity_info(updated_ride)
+    updated_ride.update(capacity_info)
     
     # Customize message based on status
     message = "Successfully joined the ride" if participant_status == "joined" else "Request submitted! Waiting for driver approval"
@@ -388,7 +431,8 @@ async def leave_ride(ride_id: str, current_user: dict = Depends(get_current_user
     # Return updated ride
     updated_ride = await rides_collection.find_one({"_id": ObjectId(ride_id)})
     updated_ride["_id"] = str(updated_ride["_id"])
-    updated_ride["available_spots"] = calculate_available_seats(updated_ride)
+    capacity_info = calculate_ride_capacity_info(updated_ride)
+    updated_ride.update(capacity_info)
     
     return {
         "message": "Successfully left the ride",
@@ -415,8 +459,9 @@ async def get_my_rides(current_user: dict = Depends(get_current_user)):
         creator = await users_collection.find_one({"email": ride["creator_email"]})
         ride["creator_name"] = creator.get("name") if creator else None
         
-        # Calculate available spots based on cars
-        ride["available_spots"] = calculate_available_seats(ride)
+        # Calculate available spots and capacity info based on cars
+        capacity_info = calculate_ride_capacity_info(ride)
+        ride.update(capacity_info)
         
         rides.append(ride)
     

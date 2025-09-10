@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime
 
 # Set environment variables
-os.environ['GROQ_API_KEY'] = '***REMOVED***'
+os.environ['GROQ_API_KEY'] = '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'
 
 # Add the backend directory to the path
 sys.path.insert(0, '/Users/danielabellido/campusMobility/backend')

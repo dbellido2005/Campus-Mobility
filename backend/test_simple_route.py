@@ -5,7 +5,7 @@ import sys
 import os
 
 # Set API key
-os.environ['GOOGLE_ROUTES_API_KEY'] = '***REMOVED***'
+os.environ['GOOGLE_ROUTES_API_KEY'] = 'AIzaSyAH5IR4dI-R3OXDobedXmyKJ4jz5mCYm64'
 
 from services.google_routes import GoogleRoutesService
 

@@ -4,7 +4,7 @@ Debug Chapman University communities issue
 """
 
 import os
-os.environ['GROQ_API_KEY'] = "***REMOVED***"
+os.environ['GROQ_API_KEY'] = "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"
 
 import sys
 sys.path.append('.')

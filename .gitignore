@@ -1,0 +1,51 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.production
+.env.test
+*.env
+
+# API credentials and tokens
+*credentials.json
+*token.json
+gmail_credentials.json
+gmail_token.json
+
+# Secret files
+secrets-to-remove.txt
+
+# Database connection strings
+database_config.py
+
+# Node modules and dependencies
+node_modules/
+npm-debug.log*
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build outputs
+*.egg-info/
+dist/
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Coverage reports
+htmlcov/
+.coverage
+.pytest_cache/
