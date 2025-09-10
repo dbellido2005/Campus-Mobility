@@ -4,6 +4,8 @@
 .env.production
 .env.test
 *.env
+backend/.env
+*/.env
 
 # API credentials and tokens
 *credentials.json
